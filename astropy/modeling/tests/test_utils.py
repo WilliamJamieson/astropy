@@ -173,3 +173,7 @@ def test__SpecialOperatorsDict_add():
     assert special_operators[key1] == operator
 
     assert key0 != key1
+
+    special_operators._unique_id = 0
+    with pytest.raises(ValueError, match=r'Special operator ".*" already exists'):
+        special_operators.add(operator_name, operator)
