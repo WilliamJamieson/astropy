@@ -763,21 +763,28 @@ class _ConstraintsDict(UserDict):
         setattr(param, self.constraint_type, val)
 
 
-class _SpecialOperatorsDict(UserDict):
+class _SpecialOperatorsDict(object):
     """
     Wrapper around UserDict to allow for better tracking of the Special
     Operators for CompoundModels
     """
 
-    def __init__(self, unique_id = 0, special_operators={}):
-        super().__init__(special_operators)
+    def __init__(self, unique_id=0, special_operators=None):
         self._unique_id = unique_id
 
-    def __setitem__(self, key, val):
-        if key in self:
-            raise ValueError(f'Special operator "{key}" already exists')
+        if special_operators is None:
+            self._special_operators = {}
         else:
-            super().__setitem__(key, val)
+            self._special_operators = special_operators
+
+    def __contains__(self, item):
+        return item in self._special_operators
+
+    def __getitem__(self, item):
+        return self._special_operators[item]
+
+    def __iter__(self):
+        return self._special_operators.__iter__()
 
     def _get_unique_id(self):
         self._unique_id += 1
@@ -787,6 +794,9 @@ class _SpecialOperatorsDict(UserDict):
     def add(self, operator_name, operator):
         key = (operator_name, self._get_unique_id())
 
-        self[key] = operator
+        if key in self:
+            raise ValueError(f'Special operator "{key}" already exists')
+        else:
+            self._special_operators[key] = operator
 
         return key

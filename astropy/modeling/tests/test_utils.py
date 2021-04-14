@@ -105,19 +105,41 @@ def test_ellipse_extent():
         assert diff < 1
 
 
-def test__SpecialOperatorsDict___setitem__():
-    key = 'test'
-    val = 'value'
-
+def test__SpecialOperatorsDict___init__():
     special_operators = _SpecialOperatorsDict()
+    assert special_operators._unique_id == 0
+    assert special_operators._special_operators == {}
+
+    special_operators = _SpecialOperatorsDict(1, 'test')
+    assert special_operators._unique_id == 1
+    assert special_operators._special_operators == 'test'
+
+
+def test__SpecialOperatorsDict___contains__():
+    special_operators = _SpecialOperatorsDict()
+    key = 'test'
     assert key not in special_operators
 
-    special_operators[key] = val
+    special_operators._special_operators[key] = 'value'
     assert key in special_operators
-    assert special_operators[key] == val
 
-    with pytest.raises(ValueError, match='Special operator "test" already exists'):
-        special_operators[key] = val
+
+def test__SpecialOperatorsDict___getitem__():
+    special_operators = _SpecialOperatorsDict()
+    key = 'test'
+    special_operators._special_operators[key] = 'value'
+
+    assert key in special_operators
+    assert special_operators[key] == 'value'
+
+
+def test__SpecialOperatorsDict___iter__():
+    test_dict = {'a': 'b', 'c': 'd'}
+    special_operators = _SpecialOperatorsDict(special_operators=test_dict)
+
+    for i in special_operators:
+        assert i in test_dict
+        assert special_operators[i] == test_dict[i]
 
 
 def test__SpecialOperatorsDict__get_unique_id():
