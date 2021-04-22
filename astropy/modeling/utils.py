@@ -239,6 +239,13 @@ class _BoundingBox(tuple):
         else:
             return 1
 
+    @property
+    def bbox(self):
+        if self.dimension == 1:
+            return list(self)
+        else:
+            return [bound for bounds in self for bound in bounds]
+
     def domain(self, resolution):
         """
         Given a resolution find the meshgrid approximation of the bounding box.

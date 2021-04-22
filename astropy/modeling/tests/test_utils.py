@@ -64,3 +64,14 @@ def test__SpecialOperatorsDict_add():
     assert special_operators[key1] == operator
 
     assert key0 != key1
+
+
+def test_bbox():
+    box = _BoundingBox((1, 2))
+    assert box.bbox == [1, 2]
+
+    box = _BoundingBox(((1, 2), (3, 4)))
+    assert box.bbox == [1, 2, 3, 4]
+
+    box = _BoundingBox(((1, 2), (3, 4), (5, 6)))
+    assert box.bbox == [1, 2, 3, 4, 5, 6]
