@@ -42,6 +42,8 @@ from .utils import poly_map_domain, _combine_equivalency_dict
 from .optimizers import (SLSQP, Simplex)
 from .statistic import (leastsquare)
 from .optimizers import (DEFAULT_MAXITER, DEFAULT_EPS, DEFAULT_ACC)
+from .core import ModelDefinitionError
+from .spline import (Spline1D, Spline2D)
 
 __all__ = ['LinearLSQFitter', 'LevMarLSQFitter', 'FittingWithOutlierRemoval',
            'SLSQPLSQFitter', 'SimplexLSQFitter', 'JointFitter', 'Fitter',
@@ -1585,6 +1587,99 @@ def _convert_input(x, y, z=None, n_models=1, model_set_axis=0):
             raise ValueError("x, y and z should have the same shape")
         farg = (x, y, z)
     return farg
+
+
+class SplineFitter(metaclass=_FitterMeta):
+    """
+    Spline Fitter
+    """
+
+    def __init__(self):
+        self.fit_info = {'fp': None,
+                         'ier': None,
+                         'msg': None,
+                         }
+
+    def _set_fit_info(self, fp, ier, msg):
+        self.fit_info['fp'] = fp
+        self.fit_info['ier'] = ier
+        self.fit_info['msg'] = msg
+
+    def __call__(self, model, x, y, z=None, *, w=None, k=None, s=None, t=None):
+        """
+        Fit spline
+
+        Parameters
+        ----------
+        model : FittableModel
+            The model to be fit. Must be Spline1D or Spline2D model.
+        x, y, z : array_like
+            equal length 1-D sequences of data points.
+                If 1D spline, x must be increasing; must be strictly
+                increasing if s is 0.
+                If 1D spline z must be None, otherwise z must be present.
+        w : array_like, optional
+            Weights for spline fitting. Must be positive. Must have same
+            length as x. If None (default), weights are all equal.
+        k : int or tuple(int, int), optional
+            Degree of spline being fit.
+            If 2-D k = (kx, ky) which are degrees of x-spline and y-spline
+            respectively
+        s : float or None, optional
+            Positive smoothing factor used to choose the number of knots.
+            Number of a knots will be increased until the smoothing
+            condition is satisfied:
+                For 1-D:
+                ```
+                sum((w[i] * (y[i]-spl(x[i])))**2, axis=0) <= s
+                ```
+                For 2-D:
+                ```
+                sum((w[i]*(z[i]-s(x[i], y[i])))**2, axis=0) <= s
+                ```
+            If None (default), s = len(w) which should be a good value
+            if 1/w[i] is an estimate of the standard deviation of y[i].
+            If 0, spline will interpolate through all data points.
+        t : array_like/tuple(array_like, array_like), optional
+            Fit knots to be used.
+            If 2-D then knots in both directions must be included.
+            This will override any setting for s.
+        """
+
+        model_copy = model.copy()
+        if isinstance(model_copy, Spline1D):
+            if z is not None:
+                raise ValueError("1D model can only have 2 data points.")
+
+            if k is None:
+                k = 3
+
+            fp, ier, msg = model_copy.fit_spline(x, y, w=w, k=k, s=s, t=t)
+            self._set_fit_info(fp, ier, msg)
+
+            return model_copy
+
+        elif isinstance(model_copy, Spline2D):
+            if z is None:
+                raise ValueError("2D model must have 3 data points.")
+
+            if k is None:
+                k = (3, 3)
+            elif not (isinstance(k, tuple) and (len(k) == 2)):
+                raise ValueError("If setting k, then both kx and ky must be passed")
+
+            if t is None:
+                t = (None, None)
+            elif not (isinstance(t, tuple) and (len(t) == 2)):
+                raise ValueError("If setting t, then both tx and ty must be passed")
+
+            fp, ier, msg = model_copy.fit_spline(x, y, z, w=w, kx=k[0], ky=k[1],
+                                                 s=s, tx=t[0], ty=t[1])
+            self._set_fit_info(fp, ier, msg)
+
+            return model_copy
+        else:
+            raise ModelDefinitionError("Only spline models are compatible with this fitter")
 
 
 # TODO: These utility functions are really particular to handling

@@ -15,13 +15,18 @@ from astropy.utils.compat.optional_deps import HAS_SCIPY  # noqa
 
 from astropy.utils.exceptions import (AstropyUserWarning,)
 from astropy.modeling.core import (ModelDefinitionError,)
-from astropy.modeling.spline import (_Spline, Spline1D, Spline2D, SplineFitter, SplineLSQFitter)
+from astropy.modeling.spline import (_Spline, Spline1D, Spline2D,)
+from astropy.modeling.fitting import SplineFitter
+
+npts = 50
+np.random.seed(42)
+test_w = np.random.rand(npts)
+test_t = [-1, 0, 1]
+noise = np.random.randn(npts)
 
 
 class TestSpline:
     def setup_class(self):
-        self.spline = mk.MagicMock()
-
         self.bounding_box = mk.MagicMock()
         self.bbox = mk.MagicMock()
         self.bounding_box.bbox = self.bbox
@@ -30,35 +35,251 @@ class TestSpline:
         self.optional_inputs = {f'test{i}': mk.MagicMock() for i in range(self.num_opt)}
         self.extra_kwargs = {f'new{i}': mk.MagicMock() for i in range(self.num_opt)}
 
+        from scipy.interpolate import splrep, bisplrep
+
+        np.random.seed(42)
+        x = np.linspace(-3, 3, npts)
+        y = np.exp(-x**2) + 0.1 * np.random.randn(npts)
+        self.tck_1D = splrep(x, y)
+
+        y = np.linspace(-3, 3, npts)
+        z = np.exp(-x**2 - y**2) + 0.1 * np.random.randn(npts)
+        tck = bisplrep(x, y, z)
+        self.tck_2D = (tck[0], tck[1]), tck[2], (tck[3], tck[4])
+
+    def test__init_spline(self):
+        class Spline(_Spline):
+            optional_inputs = {'test': 'test'}
+
+            def __init__(self, dim=None):
+                self.spline_dimension = dim
+
+        spl = Spline()
+        spl._init_spline()
+        assert spl._t == None
+        assert spl._c == None
+        assert spl._k == None
+        assert spl._test == None
+
+        # check non-defaults
+        spl = Spline(1)
+        spl._init_spline(1, 2, 3)
+        assert spl._t == 1
+        assert spl._c == 2
+        assert spl._k == 3
+        assert spl._test == None
+
+        spl = Spline()
+        # check that dimensions are checked
+        with pytest.raises(ValueError,
+                           match=r"The dimensions for knots and degree do not agree!"):
+            spl._init_spline((1, 2), 3, 4)
+
+    def test__check_dimension(self):
+        class Spline(_Spline):
+            pass
+
+        spl = Spline()
+        t_effect = [0,   1, 1, 2, 3]
+        k_effect = [any, 0, 1, 2, 1]
+        effects = [val for pair in zip(t_effect, k_effect) for val in pair]
+        call_arg = [mk.call(spl, '_t'), mk.call(spl, '_k')]
+        with mk.patch.object(_Spline, '_get_dimension', autospec=True,
+                             side_effect=effects) as mkGet:
+            # t is None
+            spl._check_dimension()
+            mkGet.call_args_list == call_arg
+
+            mkGet.reset_mock()
+            # t is not None, but k is None
+            spl._check_dimension()
+            mkGet.call_args_list == call_arg
+
+            mkGet.reset_mock()
+            # t is 1D and k is 1D
+            spl._check_dimension()
+            mkGet.call_args_list == call_arg
+
+            mkGet.reset_mock()
+            # t is 2D and k is 2D
+            spl._check_dimension()
+            mkGet.call_args_list == call_arg
+
+            mkGet.reset_mock()
+            # t is 3D and k is 1D
+            with pytest.raises(ValueError,
+                               match=r"The dimensions for knots and degree do not agree!"):
+                spl._check_dimension()
+            mkGet.call_args_list == call_arg
+
+    def test__get_dimension(self):
+        class Spline(_Spline):
+            def __init__(self, test=None, dim=None):
+                self.test = test
+                self.spline_dimension = dim
+
+        # 0-D data
+        spl = Spline()
+        assert spl.test == None
+        assert spl._get_dimension('test') == 0
+
+        # 1-D data
+        spl = Spline(1)
+        assert spl.test == 1
+        assert spl._get_dimension('test') == 1
+        spl = Spline(np.arange(npts))
+        assert (spl.test == np.arange(npts)).all()
+        assert spl._get_dimension('test') == 1
+
+        # 1-D data, with warning
+        spl = Spline((1,))
+        assert spl.test == (1,)
+        with pytest.warns(AstropyUserWarning):
+            assert spl._get_dimension('test') == 1
+        assert spl.test == 1
+        spl = Spline((np.arange(npts),))
+        assert len(spl.test) == 1
+        assert (spl.test[0] == np.arange(npts)).all()
+        with pytest.warns(AstropyUserWarning):
+            assert spl._get_dimension('test') == 1
+        assert (spl.test == np.arange(npts)).all()
+
+        # 1-D data, with error
+        spl = Spline(1, 2)
+        assert spl.test == 1
+        with pytest.raises(RuntimeError):
+            spl._get_dimension('test')
+        spl = Spline(np.arange(npts), 2)
+        assert (spl.test == np.arange(npts)).all()
+        with pytest.raises(RuntimeError):
+            spl._get_dimension('test')
+
+        # 2-D data
+        spl = Spline((1, 2))
+        assert spl.test == (1, 2)
+        assert spl._get_dimension('test') == 2
+        spl = Spline((np.arange(npts), np.arange(npts)))
+        assert len(spl.test) == 2
+        assert (spl.test[0] == np.arange(npts)).all()
+        assert (spl.test[1] == np.arange(npts)).all()
+        assert spl._get_dimension('test') == 2
+
+        # 3-D data
+        spl = Spline((1, 2, 3))
+        assert spl.test == (1, 2, 3)
+        assert spl._get_dimension('test') == 3
+        spl = Spline((np.arange(npts), np.arange(npts), np.arange(npts)))
+        assert len(spl.test) == 3
+        assert (spl.test[0] == np.arange(npts)).all()
+        assert (spl.test[1] == np.arange(npts)).all()
+        assert (spl.test[2] == np.arange(npts)).all()
+        assert spl._get_dimension('test') == 3
+
+    def test_knots(self):
+        class Spline(_Spline):
+            def __init__(self):
+                self._init_spline()
+
+        spl = Spline()
+        with pytest.warns(AstropyUserWarning):
+            assert spl.knots == spl._t == None
+
+        with mk.patch.object(_Spline, '_check_dimension', autospec=True) as mkCheck:
+            spl.knots = np.arange(npts)
+            assert mkCheck.call_args_list == [mk.call(spl)]
+            assert (spl.knots == spl._t).all()
+            assert (spl.knots == np.arange(npts)).all()
+
+            mkCheck.reset_mock()
+            knots = np.random.rand(npts)
+            assert (spl.knots != knots).all()
+            with pytest.warns(AstropyUserWarning):
+                spl.knots = knots
+            assert mkCheck.call_args_list == [mk.call(spl)]
+            assert (spl.knots == spl._t).all()
+            assert (spl.knots == knots).all()
+
+    def test_coeffs(self):
+        class Spline(_Spline):
+            def __init__(self):
+                self._init_spline()
+
+        spl = Spline()
+        with pytest.warns(AstropyUserWarning):
+            assert spl.coeffs == spl._c == None
+
+        spl.coeffs = np.arange(npts)
+        assert (spl.coeffs == spl._c).all()
+        assert (spl.coeffs == np.arange(npts)).all()
+
+        coeffs = np.random.rand(npts)
+        assert (spl.coeffs != coeffs).all()
+        with pytest.warns(AstropyUserWarning):
+            spl.coeffs = coeffs
+        assert (spl.coeffs == spl._c).all()
+        assert (spl.coeffs == coeffs).all()
+
+    def test_degree(self):
+        class Spline(_Spline):
+            def __init__(self):
+                self._init_spline()
+
+        spl = Spline()
+        with pytest.warns(AstropyUserWarning):
+            assert spl.degree == spl._k == None
+
+        with mk.patch.object(_Spline, '_check_dimension', autospec=True) as mkCheck:
+            spl.degree = 1
+            assert mkCheck.call_args_list == [mk.call(spl)]
+            assert spl.degree == spl._k
+            assert spl.degree == 1
+
+            mkCheck.reset_mock()
+            with pytest.warns(AstropyUserWarning):
+                spl.degree = 2
+            assert mkCheck.call_args_list == [mk.call(spl)]
+            assert spl.degree == spl._k
+            assert spl.degree == 2
+
+    def test_tck(self):
+        class Spline(_Spline):
+            pass
+
+        spl = Spline()
+        with pytest.raises(NotImplementedError):
+            spl.tck
+
+        with pytest.raises(NotImplementedError):
+            spl.tck = mk.MagicMock()
+
     def test_spline(self):
         class Spline(_Spline):
-            _spline = None
+            pass
 
         spl = Spline()
-        assert spl._spline is None
-        assert spl.spline is None
+        with pytest.raises(NotImplementedError):
+            spl.spline
 
-        spl.spline = self.spline
-        assert spl._spline == self.spline
-        assert spl.spline == self.spline
+        spline = mk.MagicMock()
+        with mk.patch.object(_Spline, 'tck', new_callable=mk.PropertyMock) as mkTck:
+            spl.spline = spline
+            assert mkTck.call_args_list == [mk.call(spline)]
 
-        assert spl.spline is not None
-        with pytest.warns(AstropyUserWarning,
-                          match=r'Spline already defined for this model.*'):
-            spl.spline = mk.MagicMock()
-
-    def test_reset_spline(self):
+    def test_reset(self):
         class Spline(_Spline):
-            _spline = None
+            _t = 1
+            _c = 2
+            _k = 3
 
         spl = Spline()
-        spl.spline = self.spline
-        assert spl.spline is not None
+        assert spl._t == 1
+        assert spl._c == 2
+        assert spl._k == 3
 
-        spl.reset_spline()
-        assert spl.spline is None
-        spl.spline = self.spline
-        assert spl.spline == self.spline
+        spl.reset()
+        assert spl._t is None
+        assert spl._c is None
+        assert spl._k is None
 
     def test_bbox(self):
         class Spline(_Spline):
@@ -177,90 +398,215 @@ class TestSpline:
         assert new_kwargs == kwargs
 
 
+fitting_variables_1D = ('w', 'k', 's', 't')
+fitting_tests_1D = [
+    (None,   1, None, None),
+    (None,   2, None, None),
+    (None,   3, None, None),
+    (None,   4, None, None),
+    (None,   5, None, None),
+    (test_w, 3, None, None),
+    (test_w, 1, None, None),
+    (None,   3, npts, None),
+    (None,   1, npts, None),
+    (None,   3, 3,    None),
+    (None,   1, 3,    None),
+    (None,   3, None, test_t),
+    (None,   1, None, test_t),
+    (None,   1, npts, test_t),
+]
+
+
 @pytest.mark.skipif('not HAS_SCIPY')
 class TestSpline1D:
     """Test Spline 1D"""
 
     def setup_class(self):
-        np.random.seed(42)
-        self.npts = 50
+        def func(x, noise):
+            return np.exp(-x**2) + 0.1*noise
 
-        self.x = np.linspace(-3, 3, self.npts)
-        self.y = np.exp(-self.x**2) + 0.1 * np.random.randn(self.npts)
-        self.w = np.arange(self.npts)
-        self.t = [-1, 0, 1]
+        self.x = np.linspace(-3, 3, npts)
+        self.y = func(self.x, noise)
+
+        arg_sort = np.argsort(self.x)
+        np.random.shuffle(arg_sort)
+
+        self.x_s = self.x[arg_sort]
+        self.y_s = func(self.x_s, noise[arg_sort])
 
         self.npts_out = 1000
         self.xs = np.linspace(-3, 3, self.npts_out)
 
-    def generate_spline(self, w=None, bbox=[None]*2, k=None, s=None,
-                        ext=None, check_finte=None):
+    def generate_spline(self, w=None, bbox=[None]*2, k=None, s=None, t=None):
         if k is None:
             k = 3
-        if ext is None:
-            ext = 0
-        if check_finte is None:
-            check_finte = False
 
-        from scipy.interpolate import UnivariateSpline
+        from scipy.interpolate import splrep, BSpline
 
-        return UnivariateSpline(self.x, self.y, w=w, bbox=bbox, k=k, s=s,
-                                ext=ext, check_finite=check_finte)
+        tck, fp, ier, msg = splrep(self.x, self.y, w=w, xb=bbox[0], xe=bbox[1],
+                                   k=k, s=s, t=t, full_output=1)
 
-    def generate_LSQ_spline(self, w=None, bbox=[None]*2, k=None, ext=None,
-                            check_finte=None):
-        if k is None:
-            k = 3
-        if ext is None:
-            ext = 0
-        if check_finte is None:
-            check_finte = False
+        return BSpline(*tck), fp, ier, msg
 
-        from scipy.interpolate import LSQUnivariateSpline
+    def check_fit_spline(self, spl, x, y, fp, ier, msg, w=None, k=3, s=None, t=None):
+        if (s is not None) and (t is not None):
+            with pytest.warns(AstropyUserWarning):
+                test_fp, test_ier, test_msg = \
+                    spl.fit_spline(x, y, w=w, k=k, s=s, t=t)
+        else:
+            test_fp, test_ier, test_msg = \
+                spl.fit_spline(x, y, w=w, k=k, s=s, t=t)
 
-        return LSQUnivariateSpline(self.x, self.y, self.t, w=w, bbox=bbox,
-                                   k=k, ext=ext, check_finite=check_finte)
+        assert fp == test_fp
+        assert ier == test_ier
+        assert msg == test_msg
+
+    def check_fitter(self, fitter, spl, fp, ier, msg, w=None, k=3, s=None, t=None):
+        assert fitter.fit_info['fp'] is None
+        assert fitter.fit_info['ier'] is None
+        assert fitter.fit_info['msg'] is None
+
+        if (s is not None) and (t is not None):
+            with pytest.warns(AstropyUserWarning):
+                fit = fitter(spl, self.x, self.y, w=w, k=k, s=s, t=t)
+        else:
+            fit = fitter(spl, self.x, self.y, w=w, k=k, s=s, t=t)
+
+        assert fitter.fit_info['fp'] == fp
+        assert fitter.fit_info['ier'] == ier
+        assert fitter.fit_info['msg'] == msg
+
+        return fit
+
+    def check_spline(self, spl, truth, nu, k=3):
+        if nu > k + 1:
+            with pytest.raises(RuntimeError):
+                spl.evaluate(self.xs, nu=nu)
+        else:
+            assert (spl(self.xs, nu=nu) == truth(self.xs, nu=nu)).all()
+
+    def check_fit(self, spl, truth, k=3):
+        assert (truth.t == spl.knots).all()
+        assert (truth.c == spl.coeffs).all()
+        assert truth.k == spl.degree
+
+        assert (spl(self.xs) == truth(self.xs)).all()
+
+        for nu in range(1, 7):
+            self.check_spline(spl, truth, nu, k)
+
+        # Test warning
+        with pytest.warns(AstropyUserWarning):
+            spl.fit_spline(self.x, self.y)
+
+    def run_fit_check(self, spl, w=None, k=3, s=None, t=None, bbox=[None]*2):
+        truth, fp, ier, msg = self.generate_spline(w=w, k=k, s=s, t=t, bbox=bbox)
+
+        spl.reset()
+        self.check_fit_spline(spl, self.x, self.y, fp, ier, msg,
+                              w=w, k=k, s=s, t=t)
+        self.check_fit(spl, truth, k=k)
+
+        spl.reset()
+        self.check_fit_spline(spl, self.x_s, self.y_s, fp, ier, msg,
+                              w=w, k=k, s=s, t=t)
+        self.check_fit(spl, truth, k=k)
+
+    @pytest.mark.parametrize(fitting_variables_1D, fitting_tests_1D)
+    def test_fit_spline(self, w, k, s, t):
+        spl = Spline1D()
+
+        # Normal
+        self.run_fit_check(spl, w=w, k=k, s=s, t=t)
+
+        spl.reset()
+        bbox = (-4, 4)
+        spl.bounding_box = bbox
+        self.run_fit_check(spl, w=w, k=k, s=s, t=t, bbox=bbox)
+
+    @pytest.mark.parametrize(fitting_variables_1D, fitting_tests_1D)
+    def test_SplineFitter(self, w, k, s, t):
+        fitter = SplineFitter()
+        spl = Spline1D()
+        truth, fp, ier, msg = self.generate_spline(w=w, k=k, s=s, t=t)
+
+        fit = self.check_fitter(fitter, spl, fp, ier, msg,
+                                w=w, k=k, s=s, t=t)
+        assert id(fit) != id(spl)
+        self.check_fit(fit, truth, k=k)
+
+        # Test bad input
+        with pytest.raises(ValueError):
+            fitter(spl, self.x, self.y, mk.MagicMock(), w=w, k=k, s=s, t=t)
+
+        # Test bad model
+        with pytest.raises(ModelDefinitionError,
+                           match=r"Only spline models are compatible with this fitter"):
+            fitter(mk.MagicMock(), self.x, self.y, w=w, k=k, s=s, t=t)
 
     def test___init__(self):
         # check  defaults
         spl = Spline1D()
-        assert spl._k == 3
-        assert spl._ext == 0
-        assert not spl._check_finite
-        assert spl._nu is None
+        assert spl._t == None
+        assert spl._c == None
+        assert spl._k == None
+        assert spl._nu == None
 
         # check non-defaults
-        spl = Spline1D(1, 2, True)
-        assert spl._k == 1
-        assert spl._ext == 2
-        assert spl._check_finite
-        assert spl._nu is None
+        spl = Spline1D(1, 2, 3)
+        assert spl._t == 1
+        assert spl._c == 2
+        assert spl._k == 3
+        assert spl._nu == None
+
+        # check that dimensions are checked
+        with pytest.raises(RuntimeError):
+            Spline1D((1, 2), 3, 4)
+
+    def test_tck(self):
+        spl = Spline1D()
+
+        with pytest.warns(AstropyUserWarning):
+            assert spl.tck == (None, None, None)
+
+        spl.tck = (1, 2, 3)
+        assert spl.tck == (1, 2, 3)
+        assert spl.knots == spl._t == 1
+        assert spl.coeffs == spl._c == 2
+        assert spl.degree == spl._k == 3
+
+        spl.reset()
+        bspline = self.generate_spline()[0]
+        spl.tck = bspline
+        assert spl.tck == bspline.tck
+        assert (spl.knots == spl._t).all()
+        assert (spl.coeffs == spl._c).all()
+        assert spl.degree == spl._k
+        assert (spl.knots == bspline.tck[0]).all()
+        assert (spl.coeffs == bspline.tck[1]).all()
+        assert spl.degree == bspline.tck[2]
+
+        spl.reset()
+        # Tuple of incorrect length
+        with pytest.raises(NotImplementedError):
+            spl.tck = (1, 2, 3, 4)
+
+        spl.reset()
+        # Arbitrary input error
+        with pytest.raises(NotImplementedError):
+            spl.tck = mk.MagicMock()
 
     def test_spline(self):
         spl = Spline1D()
-        assert spl.spline is None
+        bspline = self.generate_spline()[0]
+        spl.spline = bspline
 
-        spl.spline = self.generate_spline()
-        truth = self.generate_spline()
-        assert spl.spline == spl._spline
-        assert (spl.spline(self.xs) == truth(self.xs)).all()
-
-        assert spl.spline is not None
-        with pytest.warns(AstropyUserWarning,
-                          match=r'Spline already defined for this model.*'):
-            spl.spline = self.generate_spline()
-
-    def test_reset_spline(self):
-        spl = Spline1D()
-        spl._spline = self.generate_spline()
-
-        spl.reset_spline()
-        assert spl._spline is None
+        assert spl.spline.tck == bspline.tck
 
     def test_evaluate(self):
         spl = Spline1D()
-        spl._spline = self.generate_spline()
-        truth = self.generate_spline()
+        truth = self.generate_spline()[0]
+        spl.spline = truth
 
         assert (spl.evaluate(self.xs) == truth(self.xs)).all()
 
@@ -269,13 +615,18 @@ class TestSpline1D:
         assert (spl.evaluate(self.xs, nu=1) == truth(self.xs, nu=1)).all()
         assert (spl.evaluate(self.xs, nu=2) == truth(self.xs, nu=2)).all()
         assert (spl.evaluate(self.xs, nu=3) == truth(self.xs, nu=3)).all()
+        assert (spl.evaluate(self.xs, nu=4) == truth(self.xs, nu=4)).all()
+
+        with pytest.raises(RuntimeError):
+            spl.evaluate(self.xs, nu=5)
 
         # direct derivative call overrides internal
-        spl._nu = 4
+        spl._nu = 5
         assert (spl.evaluate(self.xs, nu=0) == truth(self.xs, nu=0)).all()
         assert (spl.evaluate(self.xs, nu=1) == truth(self.xs, nu=1)).all()
         assert (spl.evaluate(self.xs, nu=2) == truth(self.xs, nu=2)).all()
         assert (spl.evaluate(self.xs, nu=3) == truth(self.xs, nu=3)).all()
+        assert (spl.evaluate(self.xs, nu=4) == truth(self.xs, nu=4)).all()
 
         # internal sets derivative and then gets reset
         spl._nu = 0
@@ -289,6 +640,9 @@ class TestSpline1D:
         assert spl._nu is None
         spl._nu = 3
         assert (spl.evaluate(self.xs) == truth(self.xs, nu=3)).all()
+        assert spl._nu is None
+        spl._nu = 4
+        assert (spl.evaluate(self.xs) == truth(self.xs, nu=4)).all()
         assert spl._nu is None
 
     def test___call__(self):
@@ -322,138 +676,49 @@ class TestSpline1D:
         spl.bounding_box = (1, 2)
         assert spl.bbox == [1, 2]
 
-    def test_fit_spline(self):
-        spl = Spline1D()
-        truth = self.generate_spline()
-        spl.fit_spline(self.x, self.y)
-        assert spl._spline is not None
+    def test__sort_xy(self):
+        spline = Spline1D()
 
-        assert (spl(self.xs) == truth(self.xs)).all()
-        assert (spl(self.xs, nu=1) == truth(self.xs, nu=1)).all()
-        assert (spl(self.xs, nu=2) == truth(self.xs, nu=2)).all()
-        assert (spl(self.xs, nu=3) == truth(self.xs, nu=3)).all()
+        assert not (self.x == self.x_s).all()
+        assert not (self.y == self.y_s).all()
 
-        # Test warning
-        spl = Spline1D()
-        spl._spline = self.generate_spline()
-        assert spl._spline is not None
-        with pytest.warns(AstropyUserWarning,
-                          match=r'Spline already defined for this model.*'):
-            spl.fit_spline(self.x, self.y)
+        x_n, y_n = spline._sort_xy(self.x_s, self.y_s, False)
+        assert (x_n == self.x_s).all()
+        assert (y_n == self.y_s).all()
 
-        spl = Spline1D(k=1)
-        truth = self.generate_spline(k=1)
-        spl.fit_spline(self.x, self.y)
-        assert spl._spline is not None
+        x_n, y_n = spline._sort_xy(self.x_s, self.y_s)
+        assert (x_n == self.x).all()
+        assert (y_n == self.y).all()
 
-        assert (spl(self.xs) == truth(self.xs)).all()
-        assert (spl(self.xs, nu=1) == truth(self.xs, nu=1)).all()
 
-        spl = Spline1D()
-        spl.bounding_box = (-4, 4)
-        truth = self.generate_spline(bbox=(-4, 4))
-        spl.fit_spline(self.x, self.y,)
-        assert spl._spline is not None
-
-        assert (spl(self.xs) == truth(self.xs)).all()
-        assert (spl(self.xs, nu=1) == truth(self.xs, nu=1)).all()
-        assert (spl(self.xs, nu=2) == truth(self.xs, nu=2)).all()
-        assert (spl(self.xs, nu=3) == truth(self.xs, nu=3)).all()
-
-        spl = Spline1D()
-        truth = self.generate_spline(self.w)
-        spl.fit_spline(self.x, self.y, w=self.w)
-        assert spl._spline is not None
-
-        assert (spl(self.xs) == truth(self.xs)).all()
-        assert (spl(self.xs, nu=1) == truth(self.xs, nu=1)).all()
-        assert (spl(self.xs, nu=2) == truth(self.xs, nu=2)).all()
-        assert (spl(self.xs, nu=3) == truth(self.xs, nu=3)).all()
-
-    def test_SplineFitter(self):
-        fitter = SplineFitter()
-        model = Spline1D()
-        truth = self.generate_spline()
-
-        fit = fitter(model, self.x, self.y)
-        assert id(fit) != id(model)
-        assert model._spline is None
-        assert fit._spline is not None
-        assert (fit(self.xs) == truth(self.xs)).all()
-
-        with pytest.raises(ValueError,
-                           match=r"1D model can only have 2 data points."):
-            fitter(model, self.x, self.y, self.w)
-
-        with pytest.raises(ModelDefinitionError,
-                           match=r"Only spline models are compatible with this fitter"):
-            fitter(mk.MagicMock(), self.x, self.y)
-
-    def test_fit_LSQ_spline(self):
-        spl = Spline1D()
-        truth = self.generate_LSQ_spline()
-        spl.fit_LSQ_spline(self.x, self.y, self.t)
-        assert spl._spline is not None
-
-        assert (spl(self.xs) == truth(self.xs)).all()
-        assert (spl(self.xs, nu=1) == truth(self.xs, nu=1)).all()
-        assert (spl(self.xs, nu=2) == truth(self.xs, nu=2)).all()
-        assert (spl(self.xs, nu=3) == truth(self.xs, nu=3)).all()
-
-        # Test warning
-        spl._spline = self.generate_spline()
-        assert spl._spline is not None
-        with pytest.warns(AstropyUserWarning,
-                          match=r'Spline already defined for this model.*'):
-            spl.fit_LSQ_spline(self.x, self.y, self.t)
-
-        spl = Spline1D(k=1)
-        truth = self.generate_LSQ_spline(k=1)
-        spl.fit_LSQ_spline(self.x, self.y, self.t)
-        assert spl._spline is not None
-
-        assert (spl(self.xs) == truth(self.xs)).all()
-        assert (spl(self.xs, nu=1) == truth(self.xs, nu=1)).all()
-
-        spl = Spline1D()
-        spl.bounding_box = (-4, 4)
-        truth = self.generate_LSQ_spline(bbox=(-4, 4))
-        spl.fit_LSQ_spline(self.x, self.y, self.t)
-        assert spl._spline is not None
-
-        assert (spl(self.xs) == truth(self.xs)).all()
-        assert (spl(self.xs, nu=1) == truth(self.xs, nu=1)).all()
-        assert (spl(self.xs, nu=2) == truth(self.xs, nu=2)).all()
-        assert (spl(self.xs, nu=3) == truth(self.xs, nu=3)).all()
-
-        spl = Spline1D()
-        truth = self.generate_LSQ_spline(self.w)
-        spl.fit_LSQ_spline(self.x, self.y, self.t, w=self.w)
-        assert spl._spline is not None
-
-        assert (spl(self.xs) == truth(self.xs)).all()
-        assert (spl(self.xs, nu=1) == truth(self.xs, nu=1)).all()
-        assert (spl(self.xs, nu=2) == truth(self.xs, nu=2)).all()
-        assert (spl(self.xs, nu=3) == truth(self.xs, nu=3)).all()
-
-    def test_SplineLSQFitter(self):
-        fitter = SplineLSQFitter()
-        model = Spline1D()
-        truth = self.generate_LSQ_spline()
-
-        fit = fitter(model, self.t, self.x, self.y)
-        assert id(fit) != id(model)
-        assert model._spline is None
-        assert fit._spline is not None
-        assert (fit(self.xs) == truth(self.xs)).all()
-
-        with pytest.raises(ValueError,
-                           match=r"1D model can only have 2 data points."):
-            fitter(model, self.t, self.x, self.y, self.w)
-
-        with pytest.raises(ModelDefinitionError,
-                           match=r"Only spline models are compatible with this fitter"):
-            fitter(mk.MagicMock(), self.t, self.x, self.y)
+fitting_variables_2D = ('w', 'kx', 'ky', 's', 'tx', 'ty')
+fitting_tests_2D = [
+    (None,   1, 3, None, None,   None),
+    (None,   2, 3, None, None,   None),
+    (None,   4, 3, None, None,   None),
+    (None,   5, 3, None, None,   None),
+    (None,   3, 1, None, None,   None),
+    (None,   3, 2, None, None,   None),
+    (None,   3, 4, None, None,   None),
+    (None,   3, 5, None, None,   None),
+    (None,   1, 1, None, None,   None),
+    (None,   2, 2, None, None,   None),
+    (None,   3, 3, None, None,   None),
+    (None,   4, 4, None, None,   None),
+    (None,   5, 5, None, None,   None),
+    (test_w, 3, 3, None, None,   None),
+    (test_w, 1, 1, None, None,   None),
+    (None,   3, 3, npts, None,   None),
+    (None,   1, 1, npts, None,   None),
+    (None,   3, 3, 3,    None,   None),
+    (None,   1, 1, 3,    None,   None),
+    (None,   3, 3, None, test_t, test_t),
+    (None,   1, 1, None, test_t, test_t),
+    (None,   3, 3, npts, test_t, test_t),
+    (None,   1, 1, npts, test_t, test_t),
+    (None,   3, 3, None, test_t, None),
+    (None,   1, 1, None, None,   test_t),
+]
 
 
 @pytest.mark.skipif('not HAS_SCIPY')
@@ -462,89 +727,239 @@ class TestSpline2D:
 
     def setup_class(self):
         np.random.seed(42)
-        self.npts = 50
 
-        self.x = np.linspace(-3, 3, self.npts)
-        self.y = np.linspace(-3, 3, self.npts)
-        self.z = np.exp(-self.x**2 - self.y**2) + 0.1 * np.random.randn(self.npts)
-        self.w = np.random.rand(self.npts)
-        self.tx = [-1, 0, 1]
-        self.ty = [-1, 0, 1]
+        self.x = np.linspace(-3, 3, npts)
+        self.y = np.linspace(-3, 3, npts)
+        self.z = np.exp(-self.x**2 - self.y**2) + 0.1 * np.random.randn(npts)
 
         self.npts_out = 1000
         self.xs = np.linspace(-3, 3, self.npts_out)
         self.ys = np.linspace(-3, 3, self.npts_out)
 
     def generate_spline(self, w=None, bbox=[None]*4, kx=None, ky=None,
-                        s=None, eps=None):
+                        s=None, tx=None, ty=None):
         if kx is None:
             kx = 3
         if ky is None:
             ky = 3
-        if eps is None:
-            eps = 1e-16
 
-        from scipy.interpolate import SmoothBivariateSpline
+        from scipy.interpolate import bisplrep, BivariateSpline
 
-        return SmoothBivariateSpline(self.x, self.y, self.z, w=w, bbox=bbox,
-                                     kx=kx, ky=ky, s=s, eps=eps)
+        tck, fp, ier, msg = bisplrep(self.x, self.y, self.z, w=w,
+                                     xb=bbox[0], xe=bbox[1], yb=bbox[2], ye=bbox[3],
+                                     kx=kx, ky=ky, s=s, tx=tx, ty=ty,
+                                     full_output=1)
 
-    def generate_LSQ_spline(self, w=None, bbox=[None]*4, kx=None, ky=None,
-                            eps=None):
-        if kx is None:
-            kx = 3
-        if ky is None:
-            ky = 3
-        if eps is None:
-            eps = 1e-16
+        return BivariateSpline._from_tck(tck), fp, ier, msg
 
-        from scipy.interpolate import LSQBivariateSpline
+    def check_fit_spline(self, spl, fp, ier, msg, w=None, kx=3, ky=3,
+                         s=None, tx=None, ty=None):
+        if ((tx is None) and (ty is not None)) or ((tx is not None) and (ty is None)):
+            with pytest.raises(ValueError):
+                spl.fit_spline(self.x, self.y, self.z, w=w, kx=kx, ky=ky,
+                               s=s, tx=tx, ty=ty)
+            return False
+        elif (s is not None) and (tx is not None):
+            with pytest.warns(AstropyUserWarning):
+                test_fp, test_ier, test_msg = \
+                    spl.fit_spline(self.x, self.y, self.z, w=w,
+                                   kx=kx, ky=ky, s=s, tx=tx, ty=ty)
+        else:
+            test_fp, test_ier, test_msg = \
+                spl.fit_spline(self.x, self.y, self.z, w=w,
+                               kx=kx, ky=ky, s=s, tx=tx, ty=ty)
 
-        return LSQBivariateSpline(self.x, self.y, self.z, self.tx, self.ty,
-                                  w=w, bbox=bbox, kx=kx, ky=ky, eps=eps)
+        assert fp == test_fp
+        assert ier == test_ier
+        assert msg == test_msg
+
+        return True
+
+    def check_fitter(self, fitter, spl, fp, ier, msg, w=None, kx=3, ky=3,
+                     s=None, tx=None, ty=None):
+
+        assert fitter.fit_info['fp'] is None
+        assert fitter.fit_info['ier'] is None
+        assert fitter.fit_info['msg'] is None
+
+        if ((tx is None) and (ty is not None)) or ((tx is not None) and (ty is None)):
+            with pytest.raises(ValueError):
+                fitter(spl, self.x, self.y, self.z,
+                       w=w, k=(kx, ky), s=s, t=(tx, ty))
+            return False, None
+        elif (s is not None) and (tx is not None):
+            with pytest.warns(AstropyUserWarning):
+                fit = fitter(spl, self.x, self.y, self.z,
+                             w=w, k=(kx, ky), s=s, t=(tx, ty))
+        else:
+            fit = fitter(spl, self.x, self.y, self.z,
+                         w=w, k=(kx, ky), s=s, t=(tx, ty))
+
+        assert fitter.fit_info['fp'] == fp
+        assert fitter.fit_info['ier'] == ier
+        assert fitter.fit_info['msg'] == msg
+
+        return True, fit
+
+    def check_spline(self, spl, truth, dx, dy, kx=3, ky=3):
+        if dx > kx - 1:
+            with pytest.raises(RuntimeError):
+                spl.evaluate(self.xs, self.ys, dx=dx, dy=dy)
+        elif dy > ky - 1:
+            with pytest.raises(RuntimeError):
+                spl.evaluate(self.xs, self.ys, dx=dx, dy=dy)
+        else:
+            assert (spl(self.xs, self.ys, dx=dx, dy=dy) ==
+                    truth(self.xs, self.ys, dx=dx, dy=dy)).all()
+
+    def check_fit(self, spl, truth, kx=3, ky=3):
+        assert (spl.knots[0] == truth.get_knots()[0]).all()
+        assert (spl.coeffs == truth.get_coeffs()).all()
+        assert spl.degree == tuple(truth.degrees)
+
+        assert (spl(self.xs, self.ys) == truth(self.xs, self.ys)).all()
+
+        for dx in range(1, 7):
+            for dy in range(1, 7):
+                self.check_spline(spl, truth, dx, dy, kx, ky)
+
+        # Test warning
+        with pytest.warns(AstropyUserWarning):
+            spl.fit_spline(self.x, self.y, self.z)
+
+    @pytest.mark.parametrize(fitting_variables_2D, fitting_tests_2D)
+    def test_fit_spline(self, w, kx, ky, s, tx, ty):
+        spl = Spline2D()
+
+        truth, fp, ier, msg = self.generate_spline()
+        check = self.check_fit_spline(spl, fp, ier, msg)
+        if check:
+            self.check_fit(spl, truth)
+
+        spl.reset()
+        truth, fp, ier, msg = self.generate_spline(w=w, kx=kx, ky=ky,
+                                                   s=s, tx=tx, ty=ty)
+        check = self.check_fit_spline(spl, fp, ier, msg, w=w, kx=kx, ky=ky,
+                                      s=s, tx=tx, ty=ty)
+        if check:
+            self.check_fit(spl, truth, kx=kx, ky=ky)
+
+        spl.reset()
+        spl.bounding_box = ((-4, 4), (-4, 4))
+        truth, fp, ier, msg = self.generate_spline(w=w, kx=kx, ky=ky,
+                                                   s=s, tx=tx, ty=ty,
+                                                   bbox=spl.bbox)
+        check = self.check_fit_spline(spl, fp, ier, msg, w=w, kx=kx, ky=ky,
+                                      s=s, tx=tx, ty=ty)
+        if check:
+            self.check_fit(spl, truth, kx=kx, ky=ky)
+
+    @pytest.mark.parametrize(fitting_variables_2D, fitting_tests_2D)
+    def test_SplineFitter(self, w, kx, ky, s, tx, ty):
+        fitter = SplineFitter()
+        spl = Spline2D()
+        truth, fp, ier, msg = self.generate_spline(w=w, kx=kx, ky=ky,
+                                                   s=s, tx=tx, ty=ty)
+        check, fit = self.check_fitter(fitter, spl, fp, ier, msg,
+                                       w=w, kx=kx, ky=ky,
+                                       s=s, tx=tx, ty=ty)
+
+        if check:
+            assert id(fit) != id(spl)
+            self.check_fit(fit, truth, kx=kx, ky=ky)
+
+        # No z data
+        with pytest.raises(ValueError):
+            fitter(spl, self.x, self.y,
+                   w=w, k=(kx, ky), s=s, t=(tx, ty))
+
+        # Single k
+        with pytest.raises(ValueError):
+            fitter(spl, self.x, self.y, self.z,
+                   w=w, k=kx, s=s, t=(tx, ty))
+
+        # Single t
+        if tx is not None:
+            with pytest.raises(ValueError):
+                fitter(spl, self.x, self.y, self.z,
+                       w=w, k=(kx, ky), s=s, t=tx)
+
+        # Bad model input
+        with pytest.raises(ModelDefinitionError,
+                           match=r"Only spline models are compatible with this fitter"):
+            fitter(mk.MagicMock(), self.x, self.y, self.z,
+                   w=w, k=(kx, ky), s=s, t=(tx, ty))
 
     def test___init__(self):
         # check  defaults
         spl = Spline2D()
-        assert spl._kx == 3
-        assert spl._ky == 3
-        assert spl._eps == 1e-16
+        assert spl._t == None
+        assert spl._c == None
+        assert spl._k == None
         assert spl._dx is None
         assert spl._dy is None
 
         # check non-defaults
-        spl = Spline2D(1, 2, 3)
-        assert spl._kx == 1
-        assert spl._ky == 2
-        assert spl._eps == 3
+        spl = Spline2D((1, 2), 3, (4, 5))
+        assert spl._t == (1, 2)
+        assert spl._c == 3
+        assert spl._k == (4, 5)
         assert spl._dx is None
         assert spl._dy is None
 
+        # check that dimensions are checked
+        with pytest.raises(RuntimeError):
+            Spline2D((1, 2), 3, 4)
+
+    def test_tck(self):
+        spl = Spline2D()
+
+        with pytest.warns(AstropyUserWarning):
+            assert spl.tck == (None, None, None, None, None)
+
+        spl.tck = (1, 2, 3, 4, 5)
+        assert spl.tck == (1, 2, 3, 4, 5)
+        assert spl.knots == spl._t == (1, 2)
+        assert spl.coeffs == spl._c == 3
+        assert spl.degree == spl._k == (4, 5)
+        spl.reset()
+        spl.tck = ((1, 2), 3, (4, 5))
+        assert spl.tck == (1, 2, 3, 4, 5)
+        assert spl.knots == spl._t == (1, 2)
+        assert spl.coeffs == spl._c == 3
+        assert spl.degree == spl._k == (4, 5)
+
+        spl.reset()
+        bspline = self.generate_spline()[0]
+        spl.tck = bspline
+        assert len(spl.tck) == 5
+        assert spl.tck[:2] == tuple(bspline.get_knots())
+        assert (spl.tck[2] == bspline.get_coeffs()).all()
+        assert spl.tck[3:] == tuple(bspline.degrees)
+        assert spl.knots == spl._t
+        assert (spl.coeffs == spl._c).all()
+        assert spl.degree == spl._k
+        assert spl.knots == tuple(bspline.get_knots())
+        assert (spl.coeffs == bspline.get_coeffs()).all()
+        assert spl.degree == tuple(bspline.degrees)
+
+        spl.reset()
+        with pytest.raises(NotImplementedError):
+            spl.tck = mk.MagicMock()
+
     def test_spline(self):
         spl = Spline2D()
-        assert spl.spline is None
+        bspline = self.generate_spline()[0]
+        spl.spline = bspline
 
-        spl.spline = self.generate_spline()
-        truth = self.generate_spline()
-        assert spl.spline == spl._spline
-        assert (spl.spline(self.xs, self.ys) == truth(self.xs, self.ys)).all()
-
-        assert spl.spline is not None
-        with pytest.warns(AstropyUserWarning,
-                          match=r'Spline already defined for this model.*'):
-            spl.spline = self.generate_spline()
-
-    def test_reset_spline(self):
-        spl = Spline2D()
-        spl._spline = self.generate_spline()
-
-        spl.reset_spline()
-        assert spl._spline is None
+        assert spl.spline.get_knots() == tuple(bspline.get_knots())
+        assert (spl.spline.get_coeffs() == bspline.get_coeffs()).all()
+        assert spl.spline.degrees == tuple(bspline.degrees)
 
     def test_evaluate(self):
         spl = Spline2D()
-        spl._spline = self.generate_spline()
-        truth = self.generate_spline()
+        truth = self.generate_spline()[0]
+        spl.spline = truth
 
         assert (spl.evaluate(self.xs, self.ys) == truth(self.xs, self.ys)).all()
 
@@ -552,6 +967,9 @@ class TestSpline2D:
         assert (spl.evaluate(self.xs, self.ys, dx=0) == truth(self.xs, self.ys, dx=0)).all()
         assert (spl.evaluate(self.xs, self.ys, dx=1) == truth(self.xs, self.ys, dx=1)).all()
         assert (spl.evaluate(self.xs, self.ys, dx=2) == truth(self.xs, self.ys, dx=2)).all()
+
+        with pytest.raises(RuntimeError):
+            spl.evaluate(self.xs, self.ys, dx=3)
 
         assert (spl.evaluate(self.xs, self.ys, dy=0) == truth(self.xs, self.ys, dy=0)).all()
         assert (spl.evaluate(self.xs, self.ys, dy=1) == truth(self.xs, self.ys, dy=1)).all()
@@ -565,6 +983,8 @@ class TestSpline2D:
                 truth(self.xs, self.ys, dx=1, dy=2)).all()
         assert (spl.evaluate(self.xs, self.ys, dx=2, dy=2) ==
                 truth(self.xs, self.ys, dx=2, dy=2)).all()
+        with pytest.raises(RuntimeError):
+            spl.evaluate(self.xs, self.ys, dy=3)
 
         # direct derivative call overrides internal
         spl._dx = 3
@@ -678,213 +1098,3 @@ class TestSpline2D:
 
         spl.bounding_box = ((1, 2), (3, 4))
         assert spl.bbox == [1, 2, 3, 4]
-
-    def test_fit_spline(self):
-        spl = Spline2D()
-        truth = self.generate_spline()
-        spl.fit_spline(self.x, self.y, self.z)
-        assert spl._spline is not None
-
-        assert (spl(self.xs, self.ys) == truth(self.xs, self.ys)).all()
-
-        assert (spl(self.xs, self.ys, dx=1) == truth(self.xs, self.ys, dx=1)).all()
-        assert (spl(self.xs, self.ys, dx=2) == truth(self.xs, self.ys, dx=2)).all()
-
-        assert (spl(self.xs, self.ys, dy=1) == truth(self.xs, self.ys, dy=1)).all()
-        assert (spl(self.xs, self.ys, dy=2) == truth(self.xs, self.ys, dy=2)).all()
-
-        assert (spl(self.xs, self.ys, dx=1, dy=1) ==
-                truth(self.xs, self.ys, dx=1, dy=1)).all()
-        assert (spl(self.xs, self.ys, dx=2, dy=1) ==
-                truth(self.xs, self.ys, dx=2, dy=1)).all()
-        assert (spl(self.xs, self.ys, dx=1, dy=2) ==
-                truth(self.xs, self.ys, dx=1, dy=2)).all()
-        assert (spl(self.xs, self.ys, dx=2, dy=2) ==
-                truth(self.xs, self.ys, dx=2, dy=2)).all()
-
-        # Test warning
-        spl = Spline2D()
-        spl._spline = self.generate_spline()
-        assert spl._spline is not None
-        with pytest.warns(AstropyUserWarning,
-                          match=r'Spline already defined for this model.*'):
-            spl.fit_spline(self.x, self.y, self.z)
-
-        spl = Spline2D(kx=1, ky=1)
-        truth = self.generate_spline(kx=1, ky=1)
-        spl.fit_spline(self.x, self.y, self.z)
-        assert spl._spline is not None
-
-        assert (spl(self.xs, self.ys) == truth(self.xs, self.ys)).all()
-
-        spl = Spline2D()
-        spl.bounding_box = ((-4, 4), (-4, 4))
-        truth = self.generate_spline(bbox=(-4, 4, -4, 4))
-        spl.fit_spline(self.x, self.y, self.z)
-        assert spl._spline is not None
-
-        assert (spl(self.xs, self.ys) == truth(self.xs, self.ys)).all()
-
-        assert (spl(self.xs, self.ys, dx=1) == truth(self.xs, self.ys, dx=1)).all()
-        assert (spl(self.xs, self.ys, dx=2) == truth(self.xs, self.ys, dx=2)).all()
-
-        assert (spl(self.xs, self.ys, dy=1) == truth(self.xs, self.ys, dy=1)).all()
-        assert (spl(self.xs, self.ys, dy=2) == truth(self.xs, self.ys, dy=2)).all()
-
-        assert (spl(self.xs, self.ys, dx=1, dy=1) ==
-                truth(self.xs, self.ys, dx=1, dy=1)).all()
-        assert (spl(self.xs, self.ys, dx=2, dy=1) ==
-                truth(self.xs, self.ys, dx=2, dy=1)).all()
-        assert (spl(self.xs, self.ys, dx=1, dy=2) ==
-                truth(self.xs, self.ys, dx=1, dy=2)).all()
-        assert (spl(self.xs, self.ys, dx=2, dy=2) ==
-                truth(self.xs, self.ys, dx=2, dy=2)).all()
-
-        spl = Spline2D()
-        truth = self.generate_spline(self.w)
-        spl.fit_spline(self.x, self.y, self.z, w=self.w)
-        assert spl._spline is not None
-
-        assert (spl(self.xs, self.ys) == truth(self.xs, self.ys)).all()
-
-        assert (spl(self.xs, self.ys, dx=1) == truth(self.xs, self.ys, dx=1)).all()
-        assert (spl(self.xs, self.ys, dx=2) == truth(self.xs, self.ys, dx=2)).all()
-
-        assert (spl(self.xs, self.ys, dy=1) == truth(self.xs, self.ys, dy=1)).all()
-        assert (spl(self.xs, self.ys, dy=2) == truth(self.xs, self.ys, dy=2)).all()
-
-        assert (spl(self.xs, self.ys, dx=1, dy=1) ==
-                truth(self.xs, self.ys, dx=1, dy=1)).all()
-        assert (spl(self.xs, self.ys, dx=2, dy=1) ==
-                truth(self.xs, self.ys, dx=2, dy=1)).all()
-        assert (spl(self.xs, self.ys, dx=1, dy=2) ==
-                truth(self.xs, self.ys, dx=1, dy=2)).all()
-        assert (spl(self.xs, self.ys, dx=2, dy=2) ==
-                truth(self.xs, self.ys, dx=2, dy=2)).all()
-
-    def test_SplineFitter(self):
-        fitter = SplineFitter()
-        model = Spline2D()
-        truth = self.generate_spline()
-
-        fit = fitter(model, self.x, self.y, self.z)
-        assert id(fit) != id(model)
-        assert model._spline is None
-        assert fit._spline is not None
-        assert (fit(self.xs, self.ys) == truth(self.xs, self.ys)).all()
-
-        with pytest.raises(ValueError,
-                           match=r"2D model must have 3 data points."):
-            fitter(model, self.x, self.y)
-
-        with pytest.raises(ModelDefinitionError,
-                           match=r"Only spline models are compatible with this fitter"):
-            fitter(mk.MagicMock(), self.x, self.y)
-
-    @pytest.mark.filterwarnings("ignore::UserWarning")
-    def test_fit_LSQ_spline(self):
-        spl = Spline2D()
-        truth = self.generate_LSQ_spline()
-        spl.fit_LSQ_spline(self.x, self.y, self.z, self.tx, self.ty)
-        assert spl._spline is not None
-
-        assert (spl(self.xs, self.ys) == truth(self.xs, self.ys)).all()
-
-        assert (spl(self.xs, self.ys, dx=1) == truth(self.xs, self.ys, dx=1)).all()
-        assert (spl(self.xs, self.ys, dx=2) == truth(self.xs, self.ys, dx=2)).all()
-
-        assert (spl(self.xs, self.ys, dy=1) == truth(self.xs, self.ys, dy=1)).all()
-        assert (spl(self.xs, self.ys, dy=2) == truth(self.xs, self.ys, dy=2)).all()
-
-        assert (spl(self.xs, self.ys, dx=1, dy=1) ==
-                truth(self.xs, self.ys, dx=1, dy=1)).all()
-        assert (spl(self.xs, self.ys, dx=2, dy=1) ==
-                truth(self.xs, self.ys, dx=2, dy=1)).all()
-        assert (spl(self.xs, self.ys, dx=1, dy=2) ==
-                truth(self.xs, self.ys, dx=1, dy=2)).all()
-        assert (spl(self.xs, self.ys, dx=2, dy=2) ==
-                truth(self.xs, self.ys, dx=2, dy=2)).all()
-
-        # Test warning
-        spl = Spline2D()
-        spl._spline = self.generate_LSQ_spline()
-        assert spl._spline is not None
-        with pytest.warns(AstropyUserWarning,
-                          match=r'Spline already defined for this model.*'):
-            spl.fit_LSQ_spline(self.x, self.y, self.z, self.tx, self.ty)
-
-        spl = Spline2D(kx=1, ky=1)
-        truth = self.generate_LSQ_spline(kx=1, ky=1)
-        spl.fit_LSQ_spline(self.x, self.y, self.z, self.tx, self.ty)
-        assert spl._spline is not None
-
-        assert (spl(self.xs, self.ys) == truth(self.xs, self.ys)).all()
-
-        spl = Spline2D()
-        spl.bounding_box = ((-4, 4), (-4, 4))
-        truth = self.generate_LSQ_spline(bbox=(-4, 4, -4, 4))
-        spl.fit_LSQ_spline(self.x, self.y, self.z, self.tx, self.ty)
-        assert spl._spline is not None
-
-        assert (spl(self.xs, self.ys) == truth(self.xs, self.ys)).all()
-
-        assert (spl(self.xs, self.ys, dx=1) == truth(self.xs, self.ys, dx=1)).all()
-        assert (spl(self.xs, self.ys, dx=2) == truth(self.xs, self.ys, dx=2)).all()
-
-        assert (spl(self.xs, self.ys, dy=1) == truth(self.xs, self.ys, dy=1)).all()
-        assert (spl(self.xs, self.ys, dy=2) == truth(self.xs, self.ys, dy=2)).all()
-
-        assert (spl(self.xs, self.ys, dx=1, dy=1) ==
-                truth(self.xs, self.ys, dx=1, dy=1)).all()
-        assert (spl(self.xs, self.ys, dx=2, dy=1) ==
-                truth(self.xs, self.ys, dx=2, dy=1)).all()
-        assert (spl(self.xs, self.ys, dx=1, dy=2) ==
-                truth(self.xs, self.ys, dx=1, dy=2)).all()
-        assert (spl(self.xs, self.ys, dx=2, dy=2) ==
-                truth(self.xs, self.ys, dx=2, dy=2)).all()
-
-        spl = Spline2D()
-        truth = self.generate_LSQ_spline(self.w)
-        spl.fit_LSQ_spline(self.x, self.y, self.z, self.tx, self.ty, w=self.w)
-        assert spl._spline is not None
-
-        assert (spl(self.xs, self.ys) == truth(self.xs, self.ys)).all()
-
-        assert (spl(self.xs, self.ys, dx=1) == truth(self.xs, self.ys, dx=1)).all()
-        assert (spl(self.xs, self.ys, dx=2) == truth(self.xs, self.ys, dx=2)).all()
-
-        assert (spl(self.xs, self.ys, dy=1) == truth(self.xs, self.ys, dy=1)).all()
-        assert (spl(self.xs, self.ys, dy=2) == truth(self.xs, self.ys, dy=2)).all()
-
-        assert (spl(self.xs, self.ys, dx=1, dy=1) ==
-                truth(self.xs, self.ys, dx=1, dy=1)).all()
-        assert (spl(self.xs, self.ys, dx=2, dy=1) ==
-                truth(self.xs, self.ys, dx=2, dy=1)).all()
-        assert (spl(self.xs, self.ys, dx=1, dy=2) ==
-                truth(self.xs, self.ys, dx=1, dy=2)).all()
-        assert (spl(self.xs, self.ys, dx=2, dy=2) ==
-                truth(self.xs, self.ys, dx=2, dy=2)).all()
-
-    @pytest.mark.filterwarnings("ignore::UserWarning")
-    def test_SplineLSQFitter(self):
-        fitter = SplineLSQFitter()
-        model = Spline2D()
-        truth = self.generate_LSQ_spline()
-
-        fit = fitter(model, (self.tx, self.ty), self.x, self.y, self.z)
-        assert id(fit) != id(model)
-        assert model._spline is None
-        assert fit._spline is not None
-        assert (fit(self.xs, self.ys) == truth(self.xs, self.ys)).all()
-
-        with pytest.raises(ValueError,
-                           match=r"2D model must have 3 data points."):
-            fitter(model, (self.tx, self.ty), self.x, self.y)
-
-        with pytest.raises(ValueError,
-                           match=r"Must have both x and y knots defined"):
-            fitter(model, self.tx, self.x, self.y, self.z)
-
-        with pytest.raises(ModelDefinitionError,
-                           match=r"Only spline models are compatible with this fitter"):
-            fitter(mk.MagicMock(), self.tx, self.x, self.y)
