@@ -6,39 +6,127 @@
 import warnings
 
 import abc
+import numpy as np
 
 from astropy.utils.exceptions import (AstropyUserWarning,)
-from .core import (Fittable1DModel, Fittable2DModel, ModelDefinitionError)
-
-from .fitting import _FitterMeta
+from .core import (Fittable1DModel, Fittable2DModel,)
 
 
 class _Spline(abc.ABC):
     """
-    Abstract Class for Splines
-
-    Parameters
-    ----------
-    optional_inputs: dict
-        dictionary of the form
-            optional input name: default value of input
+    Meta class for spline models
     """
-
+    spline_dimension = None
     optional_inputs = {}
+
+    def _init_spline(self, t=None, c=None, k=None):
+        self._t = t
+        self._c = c
+        self._k = k
+        self._check_dimension()
+
+        # Hack to allow an optional model argument
+        self._create_optional_inputs()
+
+    def _check_dimension(self):
+        t_dim = self._get_dimension('_t')
+        k_dim = self._get_dimension('_k')
+
+        if (t_dim != 0) and (k_dim != 0) and (t_dim != k_dim):
+            raise ValueError("The dimensions for knots and degree do not agree!")
+
+    def _get_dimension(self, var):
+        value = getattr(self, var)
+
+        dim = 1
+        if value is None:
+            return 0
+        elif isinstance(value, tuple):
+            if (length := len(value)) > 1:
+                dim = length
+            else:
+                warnings.warn(f"{var} should not be a tuple of length 1",
+                              AstropyUserWarning)
+                setattr(self, var, value[0])
+
+        if (self.spline_dimension is not None) and dim != self.spline_dimension:
+            raise RuntimeError(f'{var} should have dimension {self.spline_dimension}')
+        else:
+            return dim
+
+    @property
+    def knots(self):
+        if self._t is None:
+            warnings.warn("The knots have not been defined yet!",
+                          AstropyUserWarning)
+        return self._t
+
+    @knots.setter
+    def knots(self, value):
+        if self._t is not None:
+            warnings.warn("The knots have already been defined, you are overriding them be careful!",
+                          AstropyUserWarning)
+        self._t = value
+        self._check_dimension()
+
+    @property
+    def coeffs(self):
+        if self._c is None:
+            warnings.warn("The fit coeffs have not been defined yet!",
+                          AstropyUserWarning)
+        return self._c
+
+    @coeffs.setter
+    def coeffs(self, value):
+        if self._c is not None:
+            warnings.warn("The fit coeffs have already been defined, you are overriding them be careful!",
+                          AstropyUserWarning)
+        self._c = value
+
+    @property
+    def degree(self):
+        if self._k is None:
+            warnings.warn("The fit degree have not been defined yet!",
+                          AstropyUserWarning)
+        return self._k
+
+    @degree.setter
+    def degree(self, value):
+        if self._k is not None:
+            warnings.warn("The fit degree have already been defined, you are overriding them be careful!",
+                          AstropyUserWarning)
+        self._k = value
+        self._check_dimension()
+
+    def _get_tck(self):
+        raise NotImplementedError
+
+    def _set_tck(self, value):
+        raise NotImplementedError
+
+    @property
+    def tck(self):
+        return self._get_tck()
+
+    @tck.setter
+    def tck(self, value):
+        self._set_tck(value)
+
+    def _get_spline(self):
+        raise NotImplementedError
 
     @property
     def spline(self):
-        return self._spline
+        return self._get_spline()
 
     @spline.setter
     def spline(self, value):
-        if self._spline is not None:
-            warnings.warn("Spline already defined for this model, you are overriding it.",
-                          AstropyUserWarning)
-        self._spline = value
+        self.tck = value
 
-    def reset_spline(self):
-        self._spline = None
+    def reset(self):
+        self._t = None
+        self._c = None
+        self._k = None
 
     @property
     def bbox(self):
@@ -93,53 +181,59 @@ class _Spline(abc.ABC):
 
 class Spline1D(Fittable1DModel, _Spline):
     """
-    One dimensional Spline model
+    One dimensional Spline Model
 
     Parameters
     ----------
+    t : array-like, optional
+        The knots for the spline.
+    c : array-like, optional
+        The spline coefficients.
     k : int, optional
-        Degree of the smoothing spline. Must be 1 <= k <= 5. Default is
-        k = 3, a cubic spline.
-    ext : int or str, optional
-        Controls the extrapolation mode for elements not in the interval
-        defined by the knot sequence.
-
-        if ext=0 or ‘extrapolate’, return the extrapolated value.
-
-        if ext=1 or ‘zeros’, return 0
-
-        if ext=2 or ‘raise’, raise a ValueError
-
-        if ext=3 of ‘const’, return the boundary value.
-
-        The default value is 0.
-
-    check_finite : bool, optional
-        Whether to check that the input arrays contain only finite
-        numbers. Disabling may give a performance gain, but may result
-        in problems (crashes, non-termination or non-sensical results)
-        if the inputs do contain infinities or NaNs. Default is False.
+        The degree of the spline polynomials. Supported:
+            1 <= k <= 5
 
     Notes
     -----
-    This is largely a wrapper of the `scipy.interpolate.UnivariateSpline`
-    class and its child `scipy.interpolate.LSQUnivariateSpline`. See
-    scipy.interpolate for more details.
+    The supported version of t, c, k are the tck-tuples used by 1-D
+    `scipy.interpolate` models.
+
+    Much of the additional functionality of this model is provided by
+    `scipy.interpolate.BSpline` which can be directly accessed via the
+    spline property.
+
+    Note that t, c, and k must all be set in order to evaluate this model.
     """
 
+    spline_dimension = 1
     optional_inputs = {'nu': 0}
 
-    def __init__(self, k=3, ext=0, check_finite=False, n_models=None,
+    def __init__(self, t=None, c=None, k=None, n_models=None,
                  model_set_axis=None, name=None, meta=None, **params):
-        self._k = k
-        self._ext = ext
-        self._check_finite = check_finite
-        self._spline = None
+        self._init_spline(t=t, c=c, k=k)
+
         super().__init__(n_models=n_models, model_set_axis=model_set_axis,
                          name=name, meta=meta, **params)
 
-        # Hack to allow an optional model argument
-        self._create_optional_inputs()
+    def _get_tck(self):
+        return self.knots, self.coeffs, self.degree
+
+    def _set_tck(self, value):
+        from scipy.interpolate import BSpline
+
+        if isinstance(value, tuple) and (len(value) == 3):
+            self.knots = value[0]
+            self.coeffs = value[1]
+            self.degree = value[2]
+        elif isinstance(value, BSpline):
+            self.tck = value.tck
+        else:
+            raise NotImplementedError('tck 3-tuple and BSpline setting implemented')
+
+    def _get_spline(self):
+        from scipy.interpolate import BSpline
+
+        return BSpline(*self.tck)
 
     def evaluate(self, x, **kwargs):
         """
@@ -158,73 +252,93 @@ class Spline1D(Fittable1DModel, _Spline):
         # Hack to allow an optional model argument
         kwargs = self._get_optional_inputs(**kwargs)
 
+        if 'nu' in kwargs:
+            if kwargs['nu'] > self.degree + 1:
+                raise RuntimeError(f'Cannot evaluate a derivative of order higher than {self.degree + 1}')
+
         return self.spline(x, **kwargs)
 
     def __call__(self, *args, **kwargs):
+        """
+        Parameters
+        ----------
+        x : array_like
+            A 1-D array of points at which to return the value of the smoothed
+            spline or its derivatives. Note: `x` can be unordered but the
+            evaluation is more efficient if `x` is (partially) ordered.
+        nu : int
+            The order of derivative of the spline to compute.
+        """
 
         # Hack to allow an optional model argument
         kwargs = self._intercept_optional_inputs(**kwargs)
 
         return super().__call__(*args, **kwargs)
 
-    def fit_spline(self, x, y, w=None, s=None):
+    @staticmethod
+    def _sort_xy(x, y, sort=True):
+        if sort:
+            arg_sort = np.argsort(x)
+            return x[arg_sort], y[arg_sort]
+        else:
+            return x, y
+
+
+    def fit_spline(self, x, y, w=None, k=3, s=None, t=None):
         """
-        Fit spline using `scipy.interpolate.UnivariateSpline`
+        Fit spline using `scipy.interpolate.splrep`
 
         Parameters
         ----------
-        x : (N,) array_like
-            1-D array of independent input data. Must be increasing;
-            must be strictly increasing if s is 0.
-        y : (N,) array_like
-            1-D array of dependent input data, of the same length as x.
-        w : (N,) array_like, optional
-            Weights for spline fitting. Must be positive. If None
-            (default), weights are all equal.
-        s : float or None, optional
-            Positive smoothing factor used to choose the number of knots.
-            Number of knots will be increased until the smoothing
-            condition is satisfied:
-            ```
-            sum((w[i] * (y[i]-spl(x[i])))**2, axis=0) <= s
-            ```
-            If None (default), s = len(w) which should be a good value
-            if 1/w[i] is an estimate of the standard deviation of y[i].
-            If 0, spline will interpolate through all data points.
+        x, y : array-like
+            The data points defining a curve y = f(x)
+
+        w : array-like, optional
+            Strictly positive rank-1 array of weights the same length
+            as x and y. The weights are used in computing the weighted
+            least-squares spline fit. If the errors in the y values have
+            standard-deviation given by the vector d, then w should be
+            1/d. Default is ones(len(x)).
+        k : int, optional
+            The degree of the spline fit. It is recommended to use cubic
+            splines. Even values of k should be avoided especially with
+            small s values.
+                1 <= k <= 5
+        s : float, optional
+            A smoothing condition. The amount of smoothness is
+            determined by satisfying the conditions:
+                sum((w * (y - g))**2,axis=0) <= s
+            where g(x) is the smoothed interpolation of (x,y). The user
+            can use s to control the tradeoff between closeness and
+            smoothness of fit. Larger s means more smoothing while
+            smaller values of s indicate less smoothing. Recommended
+            values of s depend on the weights, w. If the weights
+            represent the inverse of the standard-deviation of y, then
+            a good s value should be found in the range
+                (m-sqrt(2*m),m+sqrt(2*m))
+            where m is the number of datapoints in x, y, and w.
+            default : s=m-sqrt(2*m) if weights are supplied.
+                      s = 0.0 (interpolating) if no weights are supplied.
+
+        t : array_like, optional
+            User specified knots. s is ignored if t is passed.
         """
 
-        from scipy.interpolate import UnivariateSpline
+        if (s is not None) and (t is not None):
+            warnings.warn("Knots specified so moothing condition will be ignored",
+                          AstropyUserWarning)
 
-        self.spline = UnivariateSpline(x, y, w=w, bbox=self.bbox,
-                                       k=self._k, s=s, ext=self._ext,
-                                       check_finite=self._check_finite)
+        xb = self.bbox[0]
+        xe = self.bbox[1]
 
-    def fit_LSQ_spline(self, x, y, t, w=None):
-        """
-        Fit spline using `scipy.interpolate.LSQUnivariateSpline`
+        x, y = self._sort_xy(x, y)
 
-        Parameters
-        ----------
-        x : (N,) array_like
-            1-D array of independent input data. Must be increasing;
-            must be strictly increasing if s is 0.
-        y : (N,) array_like
-            1-D array of dependent input data, of the same length as x.
-        t(M,) : array_like
-            interior knots of the spline. Must be in ascending order and:
-            ```
-            bbox[0] < t[0] < ... < t[-1] < bbox[-1]
-            ```
-        w : (N,) array_like, optional
-            Weights for spline fitting. Must be positive. If None
-            (default), weights are all equal.
-        """
+        from scipy.interpolate import (splrep, BSpline)
 
-        from scipy.interpolate import LSQUnivariateSpline
+        self.tck, fp, ier, msg = splrep(x, y, w=w, xb=xb, xe=xe, k=k, s=s, t=t,
+                                        full_output=1)
 
-        self.spline = LSQUnivariateSpline(x, y, t, w=w, bbox=self.bbox,
-                                          k=self._k, ext=self._ext,
-                                          check_finite=self._check_finite)
+        return fp, ier, msg
 
 
 class Spline2D(Fittable2DModel, _Spline):
@@ -233,34 +347,77 @@ class Spline2D(Fittable2DModel, _Spline):
 
     Parameters
     ----------
-    kx, ky : ints, optional
-        Degrees of the bivariate spline. Default is 3.
-    eps : float, optional
-        A threshold for determining the effective rank of an
-        over-determined linear system of equations. eps should have a
-        value within the open interval (0, 1), the default is 1e-16.
+    t : tuple(array-like, array-like), optional
+        The knots in x and knots in y for the spline
+    c : array-like, optional
+        The spline coefficients.
+    k : tuple(int, int), optional
+        The degree of the spline polynomials. Supported:
+            1 <= k <= 5
 
     Notes
     -----
-    This is largely a wrapper of the `scipy.interpolate.SmoothBivariateSpline`
-    class and its child `scipy.interpolate.LSQBivariateSpline`. See
-    scipy.interpolate for more details.
+    The supported versions of t, c, k are the tck-tuples used by 2-D
+    `scipy.interpolate` models.
+
+    Much of the additional functionality of this model is provided by
+    `scipy.interpolate.BivariateSpline` which can be directly accessed
+    via the spline property.
+
+    Note that t, c, and k must all be set in order to evaluate this model.
     """
 
+    spline_dimension = 2
     optional_inputs = {'dx': 0,
                        'dy': 0}
 
-    def __init__(self, kx=3, ky=3, eps=1e-16, n_models=None,
+    def __init__(self, t=None, c=None, k=None, n_models=None,
                  model_set_axis=None, name=None, meta=None, **params):
-        self._kx = kx
-        self._ky = ky
-        self._eps = eps
-        self._spline = None
+        self._init_spline(t=t, c=c, k=k)
+
         super().__init__(n_models=n_models, model_set_axis=model_set_axis,
                          name=name, meta=meta, **params)
 
-        # Hack to allow an optional model argument
-        self._create_optional_inputs()
+    def _get_tck(self):
+        if (t := self.knots) is None:
+            t = [None, None]
+        else:
+            t = list(t)
+
+        if (k := self.degree) is None:
+            k = [None, None]
+        else:
+            k = list(k)
+
+        tck = list(t)
+        tck.append(self.coeffs)
+        tck.extend(k)
+
+        return tuple(tck)
+
+    def _set_tck(self, value):
+        from scipy.interpolate import BivariateSpline
+
+        if isinstance(value, list) or isinstance(value, tuple):
+            if len(value) == 3:
+                self.knots = tuple(value[0])
+                self.coeffs = value[1]
+                self.degree = tuple(value[2])
+            elif len(value) == 5:
+                self.knots = tuple(value[:2])
+                self.coeffs = value[2]
+                self.degree = tuple(value[3:])
+            else:
+                raise ValueError('tck must be of length 3 or 5')
+        elif isinstance(value, BivariateSpline):
+            self.tck = (value.get_knots(), value.get_coeffs(), value.degrees)
+        else:
+            raise NotImplementedError('tck-tuple and BivariateSpline setting implemented')
+
+    def _get_spline(self):
+        from scipy.interpolate import BivariateSpline
+
+        return BivariateSpline._from_tck(self.tck)
 
     def evaluate(self, x, y, **kwargs):
         """
@@ -279,160 +436,73 @@ class Spline2D(Fittable2DModel, _Spline):
         # Hack to allow an optional model argument
         kwargs = self._get_optional_inputs(**kwargs)
 
+        if 'dx' in kwargs:
+            if kwargs['dx'] > self.degree[0] - 1:
+                raise RuntimeError(f'Cannot evaluate a derivative of order higher than {self.degree[0] - 1}')
+        if 'dy' in kwargs:
+            if kwargs['dy'] > self.degree[1] - 1:
+                raise RuntimeError(f'Cannot evaluate a derivative of order higher than {self.degree[1] - 1}')
+
         return self.spline(x, y, **kwargs)
 
     def __call__(self, *args, **kwargs):
+        """
+        Parameters
+        ----------
+        x, y : array_like
+            Input coordinates. The arrays must be sorted to increasing order.
+        dx : int
+            Order of x-derivative
+        dy : int
+            Order of y-derivative
+        """
 
         # Hack to allow an optional model argument
         kwargs = self._intercept_optional_inputs(**kwargs)
 
         return super().__call__(*args, **kwargs)
 
-    def fit_spline(self, x, y, z, w=None, s=None):
+    def fit_spline(self, x, y, z, w=None, kx=3, ky=3, s=None, tx=None, ty=None):
         """
-        Fit spline using `scipy.interpolate.SmoothBivariateSpline`
+        Fit spline using `scipy.interpolate.bisplrep`
 
         Parameters
         ----------
-        x, y, z : array_like
-            1-D sequences of data points (order is not important).
-        w : array_like, optional
-            Positive 1-D sequence of weights, of same length as x, y,
-            and z.
-        s : float or None, optional
-            Positive smoothing factor defined for estimation condition:
-            ```
-            sum((w[i]*(z[i]-s(x[i], y[i])))**2, axis=0) <= s
-            ```
-            Default s=len(w) which should be a good value if 1/w[i] is
-            an estimate of the standard deviation of z[i].
+        x, y, z : ndarray
+            Rank-1 arrays of data points.
+        w : ndarray, optional
+            Rank-1 array of weights. By default w=np.ones(len(x)).
+        kx, ky :int, optional
+            The degrees of the spline.
+                1 <= kx, ky <= 5
+            Third order, the default (kx=ky=3), is recommended.
+        s : float, optional
+            A non-negative smoothing factor. If weights correspond to
+            the inverse of the standard-deviation of the errors in z,
+            then a good s-value should be found in the range
+                (m-sqrt(2*m),m+sqrt(2*m))
+            where m=len(x).
+        tx, ty : ndarray, optional
+            Rank-1 arrays of the user knots of the spline. Must be
+            specified together and s is ignored when specified.
         """
 
-        from scipy.interpolate import SmoothBivariateSpline
+        if ((tx is None) and (ty is not None)) or ((tx is not None) and (ty is None)):
+            raise ValueError('If 1 dimension of knots are specified, both must be specified')
 
-        self.spline = SmoothBivariateSpline(x, y, z, w=w, bbox=self.bbox,
-                                            kx=self._kx, ky=self._ky, s=s,
-                                            eps=self._eps)
+        if (s is not None) and (tx is not None):
+            warnings.warn("Knots specified so moothing condition will be ignored",
+                          AstropyUserWarning)
 
-    def fit_LSQ_spline(self, x, y, z, tx, ty, w=None):
-        """
-        Fit spline using `scipy.interpolate.LSQBivariateSpline`
+        xb = self.bbox[0]
+        xe = self.bbox[1]
+        yb = self.bbox[2]
+        ye = self.bbox[3]
 
-        Parameters
-        ----------
-        x, y, z : array_like
-            1-D sequences of data points (order is not important).
-        tx, ty : array_like
-            Strictly ordered 1-D sequences of knots coordinates.
-        w : array_like, optional
-            Positive 1-D sequence of weights, of same length as x, y and z.
-        """
+        from scipy.interpolate import bisplrep
 
-        from scipy.interpolate import LSQBivariateSpline
+        self.tck, fp, ier, msg = bisplrep(x, y, z, w=w, kx=kx, ky=ky,
+                                          xb=xb, xe=xe, yb=yb, ye=ye,
+                                          s=s, tx=tx, ty=ty, full_output=1)
 
-        self.spline = LSQBivariateSpline(x, y, z, tx, ty, w=w, bbox=self.bbox,
-                                         kx=self._kx, ky=self._ky,
-                                         eps=self._eps)
-
-
-class SplineFitter(metaclass=_FitterMeta):
-    """
-    Spline Fitter
-    """
-
-    def __call__(self, model, x, y, z=None, *, w=None, s=None):
-        """
-        Fit spline
-
-        Parameters
-        ----------
-        model : FittableModel
-            The model to be fit. Must be Spline1D or Spline2D model.
-        x, y, z : array_like
-            equal length 1-D sequences of data points.
-                If 1D spline, x must be increasing; must be strictly
-                increasing if s is 0.
-                If 1D spline z must be None, otherwise z must be present.
-        w : array_like, optional
-            Weights for spline fitting. Must be positive. Must have same
-            length as x. If None (default), weights are all equal.
-        s : float or None, optional
-            Positive smoothing factor used to choose the number of knots.
-            Number of a knots will be increased until the smoothing
-            condition is satisfied:
-                For 1-D:
-                ```
-                sum((w[i] * (y[i]-spl(x[i])))**2, axis=0) <= s
-                ```
-                For 2-D:
-                ```
-                sum((w[i]*(z[i]-s(x[i], y[i])))**2, axis=0) <= s
-                ```
-            If None (default), s = len(w) which should be a good value
-            if 1/w[i] is an estimate of the standard deviation of y[i].
-            If 0, spline will interpolate through all data points.
-        """
-
-        model_copy = model.copy()
-
-        if isinstance(model_copy, Spline1D):
-            if z is not None:
-                raise ValueError("1D model can only have 2 data points.")
-
-            model_copy.fit_spline(x, y, w=w, s=s)
-            return model_copy
-        elif isinstance(model_copy, Spline2D):
-            if z is None:
-                raise ValueError("2D model must have 3 data points.")
-
-            model_copy.fit_spline(x, y, z, w=w, s=s)
-            return model_copy
-        else:
-            raise ModelDefinitionError("Only spline models are compatible with this fitter")
-
-
-class SplineLSQFitter(metaclass=_FitterMeta):
-    """
-    Spline LSQ Fitter
-    """
-
-    def __call__(self, model, t, x, y, z=None, *, w=None):
-        """
-        Fit spline using least-squares
-
-        Parameters
-        ----------
-        model : FittableModel
-            The model to be fit. Must be Spline1D or Spline2D model.
-        t : array_like or tuple of array_like
-            If 1-D, a strictly ordered 1-D sequence of knot positions.
-            If 2-D, an xy-tuple of strictly ordered 1-D sequences of
-            knots coordinates.
-        x, y, z : array_like
-            equal length 1-D sequences of data points.
-                If 1D spline, x must be increasing; must be strictly
-                increasing if s is 0.
-                If 1D spline z must be None, otherwise z must be present.
-        w : array_like, optional
-            Weights for spline fitting. Must be positive. Must have same
-            length as x. If None (default), weights are all equal.
-        """
-
-        model_copy = model.copy()
-
-        if isinstance(model_copy, Spline1D):
-            if z is not None:
-                raise ValueError("1D model can only have 2 data points.")
-
-            model_copy.fit_LSQ_spline(x, y, t, w=w)
-            return model_copy
-        elif isinstance(model_copy, Spline2D):
-            if z is None:
-                raise ValueError("2D model must have 3 data points.")
-            if len(t) != 2:
-                raise ValueError("Must have both x and y knots defined")
-
-            model_copy.fit_LSQ_spline(x, y, z, t[0], t[1], w=w)
-            return model_copy
-        else:
-            raise ModelDefinitionError("Only spline models are compatible with this fitter")
+        return fp, ier, msg
