@@ -277,6 +277,8 @@ class Spline1D(Fittable1DModel, _Spline):
 
     def __call__(self, *args, **kwargs):
         """
+        Make model callable to model evaluation
+
         Parameters
         ----------
         x : array_like
@@ -291,6 +293,48 @@ class Spline1D(Fittable1DModel, _Spline):
         kwargs = self._intercept_optional_inputs(**kwargs)
 
         return super().__call__(*args, **kwargs)
+
+    def derivative(self, nu=1):
+        """
+        Create a spline that is a derivative of this one
+
+        Parameters
+        ----------
+        nu : int, optional
+            Derivative order, default is 1.
+        """
+        if nu <= self.degree:
+            spline = self.spline
+
+            derivative = Spline1D()
+            derivative.spline = spline.derivative(nu=nu)
+
+            return derivative
+        else:
+            raise ValueError(f'Must have nu <= {self.degree}')
+
+    def antiderivative(self, nu=1):
+        """
+        Create a spline that is a derivative of this one
+
+        Parameters
+        ----------
+        nu : int, optional
+            Antiderivative order, default is 1.
+
+        Notes
+        -----
+        Assumes constant of integration is 0
+        """
+        if (nu + self.degree) <= 5:
+            spline = self.spline
+
+            antiderivative = Spline1D()
+            antiderivative.spline = spline.antiderivative(nu=nu)
+
+            return antiderivative
+        else:
+            raise ValueError(f'Spline can have max degree 5, antiderivative degree will be {nu + self.degree}')
 
     @staticmethod
     def _sort_xy(x, y, sort=True):

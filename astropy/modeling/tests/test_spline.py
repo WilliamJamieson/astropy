@@ -7,6 +7,8 @@ import warnings
 
 import pytest
 import unittest.mock as mk
+from numpy.testing import assert_allclose
+
 import numpy as np
 
 from numpy.testing import assert_allclose
@@ -755,6 +757,54 @@ class TestSpline1D:
                 spl(self.xs, nu=2)
             assert mkEval.call_args_list == []
             assert spl._nu == 1
+
+    def test_derivative(self):
+        spl = Spline1D()
+        spl.spline = self.generate_spline()[0]
+
+        der = spl.derivative()
+        assert der.degree == 2
+        assert_allclose(der.evaluate(self.xs),       spl.evaluate(self.xs, nu=1))
+        assert_allclose(der.evaluate(self.xs, nu=1), spl.evaluate(self.xs, nu=2))
+        assert_allclose(der.evaluate(self.xs, nu=2), spl.evaluate(self.xs, nu=3))
+        assert_allclose(der.evaluate(self.xs, nu=3), spl.evaluate(self.xs, nu=4))
+
+        der = spl.derivative(nu=2)
+        assert der.degree == 1
+        assert_allclose(der.evaluate(self.xs),       spl.evaluate(self.xs, nu=2))
+        assert_allclose(der.evaluate(self.xs, nu=1), spl.evaluate(self.xs, nu=3))
+        assert_allclose(der.evaluate(self.xs, nu=2), spl.evaluate(self.xs, nu=4))
+
+        der = spl.derivative(nu=3)
+        assert der.degree == 0
+        assert_allclose(der.evaluate(self.xs),       spl.evaluate(self.xs, nu=3))
+        assert_allclose(der.evaluate(self.xs, nu=1), spl.evaluate(self.xs, nu=4))
+
+        with pytest.raises(ValueError):
+            spl.derivative(nu=4)
+
+    def test_antiderivative(self):
+        spl = Spline1D()
+        spl.spline = self.generate_spline()[0]
+
+        anti = spl.antiderivative()
+        assert anti.degree == 4
+        assert_allclose(spl.evaluate(self.xs),       anti.evaluate(self.xs, nu=1))
+        assert_allclose(spl.evaluate(self.xs, nu=1), anti.evaluate(self.xs, nu=2))
+        assert_allclose(spl.evaluate(self.xs, nu=2), anti.evaluate(self.xs, nu=3))
+        assert_allclose(spl.evaluate(self.xs, nu=3), anti.evaluate(self.xs, nu=4))
+        assert_allclose(spl.evaluate(self.xs, nu=4), anti.evaluate(self.xs, nu=5))
+
+        anti = spl.antiderivative(nu=2)
+        assert anti.degree == 5
+        assert_allclose(spl.evaluate(self.xs),       anti.evaluate(self.xs, nu=2))
+        assert_allclose(spl.evaluate(self.xs, nu=1), anti.evaluate(self.xs, nu=3))
+        assert_allclose(spl.evaluate(self.xs, nu=2), anti.evaluate(self.xs, nu=4))
+        assert_allclose(spl.evaluate(self.xs, nu=3), anti.evaluate(self.xs, nu=5))
+        assert_allclose(spl.evaluate(self.xs, nu=4), anti.evaluate(self.xs, nu=6))
+
+        with pytest.raises(ValueError):
+            spl.antiderivative(nu=3)
 
     def test_bbox(self):
         spl = Spline1D()
