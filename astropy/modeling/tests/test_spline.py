@@ -25,6 +25,7 @@ test_t = [-1, 0, 1]
 noise = np.random.randn(npts)
 
 
+@pytest.mark.skipif('not HAS_SCIPY')
 class TestSpline:
     def setup_class(self):
         self.bounding_box = mk.MagicMock()
@@ -34,18 +35,6 @@ class TestSpline:
         self.num_opt = 3
         self.optional_inputs = {f'test{i}': mk.MagicMock() for i in range(self.num_opt)}
         self.extra_kwargs = {f'new{i}': mk.MagicMock() for i in range(self.num_opt)}
-
-        from scipy.interpolate import splrep, bisplrep
-
-        np.random.seed(42)
-        x = np.linspace(-3, 3, npts)
-        y = np.exp(-x**2) + 0.1 * np.random.randn(npts)
-        self.tck_1D = splrep(x, y)
-
-        y = np.linspace(-3, 3, npts)
-        z = np.exp(-x**2 - y**2) + 0.1 * np.random.randn(npts)
-        tck = bisplrep(x, y, z)
-        self.tck_2D = (tck[0], tck[1]), tck[2], (tck[3], tck[4])
 
     def test__init_spline(self):
         class Spline(_Spline):

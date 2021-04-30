@@ -42,7 +42,8 @@ class _Spline(abc.ABC):
         if value is None:
             return 0
         elif isinstance(value, tuple):
-            if (length := len(value)) > 1:
+            length = len(value)
+            if length > 1:
                 dim = length
             else:
                 warnings.warn(f"{var} should not be a tuple of length 1",
@@ -283,7 +284,6 @@ class Spline1D(Fittable1DModel, _Spline):
         else:
             return x, y
 
-
     def fit_spline(self, x, y, w=None, k=3, s=None, t=None):
         """
         Fit spline using `scipy.interpolate.splrep`
@@ -379,12 +379,14 @@ class Spline2D(Fittable2DModel, _Spline):
                          name=name, meta=meta, **params)
 
     def _get_tck(self):
-        if (t := self.knots) is None:
+        t = self.knots
+        if t is None:
             t = [None, None]
         else:
             t = list(t)
 
-        if (k := self.degree) is None:
+        k = self.degree
+        if k is None:
             k = [None, None]
         else:
             k = list(k)
