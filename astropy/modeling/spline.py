@@ -55,6 +55,15 @@ class _Spline(abc.ABC):
         else:
             return dim
 
+    def reset(self):
+        self._t = None
+        self._c = None
+        self._k = None
+
+    @property
+    def _has_tck(self):
+        return (self._t is not None) and (self._c is not None) and (self._k is not None)
+
     @property
     def knots(self):
         if self._t is None:
@@ -64,9 +73,11 @@ class _Spline(abc.ABC):
 
     @knots.setter
     def knots(self, value):
-        if self._t is not None:
-            warnings.warn("The knots have already been defined, you are overriding them be careful!",
+        if self._has_tck:
+            warnings.warn("The knots have already been defined, reseting rest of tck!",
                           AstropyUserWarning)
+            self.reset()
+
         self._t = value
         self._check_dimension()
 
@@ -79,9 +90,11 @@ class _Spline(abc.ABC):
 
     @coeffs.setter
     def coeffs(self, value):
-        if self._c is not None:
-            warnings.warn("The fit coeffs have already been defined, you are overriding them be careful!",
+        if self._has_tck:
+            warnings.warn("The fit coeffs have already been defined, reseting rest of tck!",
                           AstropyUserWarning)
+            self.reset()
+
         self._c = value
 
     @property
@@ -93,9 +106,11 @@ class _Spline(abc.ABC):
 
     @degree.setter
     def degree(self, value):
-        if self._k is not None:
-            warnings.warn("The fit degree have already been defined, you are overriding them be careful!",
+        if self._has_tck:
+            warnings.warn("The fit degrees have already been defined, reseting rest of tck!",
                           AstropyUserWarning)
+            self.reset()
+
         self._k = value
         self._check_dimension()
 
@@ -107,7 +122,10 @@ class _Spline(abc.ABC):
 
     @property
     def tck(self):
-        return self._get_tck()
+        if self._has_tck:
+            return self._get_tck()
+        else:
+            raise RuntimeError('tck needs to be defined!')
 
     @tck.setter
     def tck(self, value):
@@ -118,16 +136,14 @@ class _Spline(abc.ABC):
 
     @property
     def spline(self):
-        return self._get_spline()
+        if self._has_tck:
+            return self._get_spline()
+        else:
+            raise RuntimeError('tck needs to be defined!')
 
     @spline.setter
     def spline(self, value):
         self.tck = value
-
-    def reset(self):
-        self._t = None
-        self._c = None
-        self._k = None
 
     @property
     def bbox(self):
@@ -379,21 +395,9 @@ class Spline2D(Fittable2DModel, _Spline):
                          name=name, meta=meta, **params)
 
     def _get_tck(self):
-        t = self.knots
-        if t is None:
-            t = [None, None]
-        else:
-            t = list(t)
-
-        k = self.degree
-        if k is None:
-            k = [None, None]
-        else:
-            k = list(k)
-
-        tck = list(t)
+        tck = list(self.knots)
         tck.append(self.coeffs)
-        tck.extend(k)
+        tck.extend(list(self.degree))
 
         return tuple(tck)
 
