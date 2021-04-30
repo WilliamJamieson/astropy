@@ -25,7 +25,6 @@ test_t = [-1, 0, 1]
 noise = np.random.randn(npts)
 
 
-@pytest.mark.skipif('not HAS_SCIPY')
 class TestSpline:
     def setup_class(self):
         self.bounding_box = mk.MagicMock()
@@ -164,6 +163,39 @@ class TestSpline:
         assert (spl.test[2] == np.arange(npts)).all()
         assert spl._get_dimension('test') == 3
 
+    def test_reset(self):
+        class Spline(_Spline):
+            _t = 1
+            _c = 2
+            _k = 3
+
+        spl = Spline()
+        assert spl._t == 1
+        assert spl._c == 2
+        assert spl._k == 3
+
+        spl.reset()
+        assert spl._t is None
+        assert spl._c is None
+        assert spl._k is None
+
+    def test__has_tck(self):
+        class Spline(_Spline):
+            def __init__(self):
+                self._init_spline()
+
+        spl = Spline()
+        assert not spl._has_tck
+
+        spl._t = mk.MagicMock()
+        assert not spl._has_tck
+
+        spl._c = mk.MagicMock()
+        assert not spl._has_tck
+
+        spl._k = mk.MagicMock()
+        assert spl._has_tck
+
     def test_knots(self):
         class Spline(_Spline):
             def __init__(self):
@@ -180,13 +212,30 @@ class TestSpline:
             assert (spl.knots == np.arange(npts)).all()
 
             mkCheck.reset_mock()
-            knots = np.random.rand(npts)
-            assert (spl.knots != knots).all()
-            with pytest.warns(AstropyUserWarning):
-                spl.knots = knots
-            assert mkCheck.call_args_list == [mk.call(spl)]
-            assert (spl.knots == spl._t).all()
-            assert (spl.knots == knots).all()
+            with mk.patch.object(_Spline, '_has_tck', new_callable=mk.PropertyMock,
+                                 side_effect=[True, False]) as mkHas:
+                with mk.patch.object(_Spline, 'reset', autospec=True) as mkReset:
+                    knots = np.random.rand(npts)
+                    assert (spl.knots != knots).all()
+                    with pytest.warns(AstropyUserWarning):
+                        spl.knots = knots
+                    assert mkHas.call_args_list == [mk.call()]
+                    assert mkReset.call_args_list == [mk.call(spl)]
+                    assert mkCheck.call_args_list == [mk.call(spl)]
+                    assert (spl.knots == spl._t).all()
+                    assert (spl.knots == knots).all()
+
+                    mkHas.reset_mock()
+                    mkReset.reset_mock()
+                    mkCheck.reset_mock()
+                    knots = np.random.rand(npts)
+                    assert (spl.knots != knots).all()
+                    spl.knots = knots
+                    assert mkHas.call_args_list == [mk.call()]
+                    assert mkReset.call_args_list == []
+                    assert mkCheck.call_args_list == [mk.call(spl)]
+                    assert (spl.knots == spl._t).all()
+                    assert (spl.knots == knots).all()
 
     def test_coeffs(self):
         class Spline(_Spline):
@@ -201,12 +250,27 @@ class TestSpline:
         assert (spl.coeffs == spl._c).all()
         assert (spl.coeffs == np.arange(npts)).all()
 
-        coeffs = np.random.rand(npts)
-        assert (spl.coeffs != coeffs).all()
-        with pytest.warns(AstropyUserWarning):
-            spl.coeffs = coeffs
-        assert (spl.coeffs == spl._c).all()
-        assert (spl.coeffs == coeffs).all()
+        with mk.patch.object(_Spline, '_has_tck', new_callable=mk.PropertyMock,
+                             side_effect=[True, False]) as mkHas:
+            with mk.patch.object(_Spline, 'reset', autospec=True) as mkReset:
+                coeffs = np.random.rand(npts)
+                assert (spl.coeffs != coeffs).all()
+                with pytest.warns(AstropyUserWarning):
+                    spl.coeffs = coeffs
+                assert mkHas.call_args_list == [mk.call()]
+                assert mkReset.call_args_list == [mk.call(spl)]
+                assert (spl.coeffs == spl._c).all()
+                assert (spl.coeffs == coeffs).all()
+
+                mkHas.reset_mock()
+                mkReset.reset_mock()
+                coeffs = np.random.rand(npts)
+                assert (spl.coeffs != coeffs).all()
+                spl.coeffs = coeffs
+                assert mkHas.call_args_list == [mk.call()]
+                assert mkReset.call_args_list == []
+                assert (spl.coeffs == spl._c).all()
+                assert (spl.coeffs == coeffs).all()
 
     def test_degree(self):
         class Spline(_Spline):
@@ -224,20 +288,46 @@ class TestSpline:
             assert spl.degree == 1
 
             mkCheck.reset_mock()
-            with pytest.warns(AstropyUserWarning):
-                spl.degree = 2
-            assert mkCheck.call_args_list == [mk.call(spl)]
-            assert spl.degree == spl._k
-            assert spl.degree == 2
+            with mk.patch.object(_Spline, '_has_tck', new_callable=mk.PropertyMock,
+                                 side_effect=[True, False]) as mkHas:
+                with mk.patch.object(_Spline, 'reset', autospec=True) as mkReset:
+                    with pytest.warns(AstropyUserWarning):
+                        spl.degree = 2
+                    assert mkHas.call_args_list == [mk.call()]
+                    assert mkReset.call_args_list == [mk.call(spl)]
+                    assert mkCheck.call_args_list == [mk.call(spl)]
+                    assert spl.degree == spl._k
+                    assert spl.degree == 2
+
+                    mkHas.reset_mock()
+                    mkReset.reset_mock()
+                    mkCheck.reset_mock()
+                    spl.degree = 3
+                    assert mkHas.call_args_list == [mk.call()]
+                    assert mkReset.call_args_list == []
+                    assert mkCheck.call_args_list == [mk.call(spl)]
+                    assert spl.degree == spl._k
+                    assert spl.degree == 3
 
     def test_tck(self):
         class Spline(_Spline):
             pass
 
         spl = Spline()
-        with pytest.raises(NotImplementedError):
-            spl.tck
 
+        # test get value
+        with mk.patch.object(_Spline, '_has_tck', new_callable=mk.PropertyMock,
+                             side_effect=[True, False]) as mkHas:
+            with pytest.raises(NotImplementedError):
+                spl.tck
+            assert mkHas.call_args_list == [mk.call()]
+
+            mkHas.reset_mock()
+            with pytest.raises(RuntimeError):
+                spl.tck
+            assert mkHas.call_args_list == [mk.call()]
+
+        # test set value
         with pytest.raises(NotImplementedError):
             spl.tck = mk.MagicMock()
 
@@ -246,29 +336,24 @@ class TestSpline:
             pass
 
         spl = Spline()
-        with pytest.raises(NotImplementedError):
-            spl.spline
 
+        # test get value
+        with mk.patch.object(_Spline, '_has_tck', new_callable=mk.PropertyMock,
+                             side_effect=[True, False]) as mkHas:
+            with pytest.raises(NotImplementedError):
+                spl.spline
+            assert mkHas.call_args_list == [mk.call()]
+
+            mkHas.reset_mock()
+            with pytest.raises(RuntimeError):
+                spl.spline
+            assert mkHas.call_args_list == [mk.call()]
+
+        # test set value
         spline = mk.MagicMock()
         with mk.patch.object(_Spline, 'tck', new_callable=mk.PropertyMock) as mkTck:
             spl.spline = spline
             assert mkTck.call_args_list == [mk.call(spline)]
-
-    def test_reset(self):
-        class Spline(_Spline):
-            _t = 1
-            _c = 2
-            _k = 3
-
-        spl = Spline()
-        assert spl._t == 1
-        assert spl._c == 2
-        assert spl._k == 3
-
-        spl.reset()
-        assert spl._t is None
-        assert spl._c is None
-        assert spl._k is None
 
     def test_bbox(self):
         class Spline(_Spline):
@@ -517,12 +602,22 @@ class TestSpline1D:
     def test_SplineFitter(self, w, k, s, t):
         fitter = SplineFitter()
         spl = Spline1D()
-        truth, fp, ier, msg = self.generate_spline(w=w, k=k, s=s, t=t)
 
+        # Main check
+        truth, fp, ier, msg = self.generate_spline(w=w, k=k, s=s, t=t)
         fit = self.check_fitter(fitter, spl, fp, ier, msg,
                                 w=w, k=k, s=s, t=t)
         assert id(fit) != id(spl)
         self.check_fit(fit, truth, k=k)
+
+        # Check defaults
+        truth, fp, ier, msg = self.generate_spline()
+        fit = fitter(spl, self.x, self.y)
+        assert fitter.fit_info['fp'] == fp
+        assert fitter.fit_info['ier'] == ier
+        assert fitter.fit_info['msg'] == msg
+        assert id(fit) != id(spl)
+        self.check_fit(fit, truth)
 
         # Test bad input
         with pytest.raises(ValueError):
@@ -555,9 +650,11 @@ class TestSpline1D:
     def test_tck(self):
         spl = Spline1D()
 
-        with pytest.warns(AstropyUserWarning):
-            assert spl.tck == (None, None, None)
+        # No tck defined
+        with pytest.raises(RuntimeError):
+            spl.tck
 
+        # Basic set
         spl.tck = (1, 2, 3)
         assert spl.tck == (1, 2, 3)
         assert spl.knots == spl._t == 1
@@ -565,6 +662,7 @@ class TestSpline1D:
         assert spl.degree == spl._k == 3
 
         spl.reset()
+        # Realistic set
         bspline = self.generate_spline()[0]
         spl.tck = bspline
         assert spl.tck == bspline.tck
@@ -847,15 +945,25 @@ class TestSpline2D:
     def test_SplineFitter(self, w, kx, ky, s, tx, ty):
         fitter = SplineFitter()
         spl = Spline2D()
+
+        # Main check
         truth, fp, ier, msg = self.generate_spline(w=w, kx=kx, ky=ky,
                                                    s=s, tx=tx, ty=ty)
         check, fit = self.check_fitter(fitter, spl, fp, ier, msg,
                                        w=w, kx=kx, ky=ky,
                                        s=s, tx=tx, ty=ty)
-
         if check:
             assert id(fit) != id(spl)
             self.check_fit(fit, truth, kx=kx, ky=ky)
+
+        # Check defaults
+        truth, fp, ier, msg = self.generate_spline()
+        fit = fitter(spl, self.x, self.y, self.z)
+        assert fitter.fit_info['fp'] == fp
+        assert fitter.fit_info['ier'] == ier
+        assert fitter.fit_info['msg'] == msg
+        assert id(fit) != id(spl)
+        self.check_fit(fit, truth)
 
         # No z data
         with pytest.raises(ValueError):
@@ -903,9 +1011,11 @@ class TestSpline2D:
     def test_tck(self):
         spl = Spline2D()
 
-        with pytest.warns(AstropyUserWarning):
-            assert spl.tck == (None, None, None, None, None)
+        # No tck
+        with pytest.raises(RuntimeError):
+            spl.tck
 
+        # Basic set
         spl.tck = (1, 2, 3, 4, 5)
         assert spl.tck == (1, 2, 3, 4, 5)
         assert spl.knots == spl._t == (1, 2)
@@ -919,6 +1029,7 @@ class TestSpline2D:
         assert spl.degree == spl._k == (4, 5)
 
         spl.reset()
+        # Realistic set
         bspline = self.generate_spline()[0]
         spl.tck = bspline
         assert len(spl.tck) == 5
