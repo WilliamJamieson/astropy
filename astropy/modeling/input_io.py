@@ -37,14 +37,15 @@ class IoMetaDataEntry(object):
 
     @classmethod
     def create_entry(cls, input_value, **kwargs):
-        raise NotImplementedError
+        raise NotImplementedError('IoMetaDataEntry does not implement this!')
 
 
 class InputMetaDataEntry(IoMetaDataEntry):
-    def __init__(self, name: str=None, pos: int=None):
+    def __init__(self, name: str=None, pos: int=None, ordinality: str='continuous'):
         super().__init__(name)
 
         self._pos = pos
+        self.ordinality = ordinality
 
     @property
     def pos(self) -> int:
@@ -60,24 +61,6 @@ class InputMetaDataEntry(IoMetaDataEntry):
         else:
             raise ValueError(f'Input {self.name} has position specified already')
 
-    @classmethod
-    def create_entry(cls, input_value, name=None, pos=None):
-        if isinstance(input_value, InputMetaDataEntry):
-            return input_value
-        elif isinstance(input_value, tuple):
-            return cls(name, *input_value)
-        elif isinstance(input_value, str):
-            return cls(input_value, pos)
-        else:
-            raise ValueError(f'{input_value} is not a valid way to set an input')
-
-
-class OptionalMetaDataEntry(IoMetaDataEntry):
-    def __init__(self, name: str=None, default=None, ordinality: str='continuous'):
-        super().__init__(name)
-        self._default = default
-        self.ordinality = ordinality
-
     @property
     def ordinality(self) -> str:
         return self._ordinality
@@ -89,13 +72,31 @@ class OptionalMetaDataEntry(IoMetaDataEntry):
         else:
             raise ValueError(f'{value} is not one of {ordinalities}')
 
+    @classmethod
+    def create_entry(cls, input_value, *, name=None, pos=None):
+        if isinstance(input_value, InputMetaDataEntry):
+            return input_value
+        elif isinstance(input_value, tuple):
+            return cls(name, *input_value)
+        elif isinstance(input_value, str):
+            return cls(input_value, pos)
+        else:
+            raise ValueError(f'{input_value} is not a valid way to set an input')
+
+
+class OptionalMetaDataEntry(IoMetaDataEntry):
+    def __init__(self, name: str=None, default=None):
+        super().__init__(name)
+
+        self._default = default
+
     @property
     def default(self):
         return self._default
 
     @classmethod
-    def create_entry(cls, input_value, name=None, pos=None):
-        if isinstance(input_value, InputMetaDataEntry):
+    def create_entry(cls, input_value, *, name=None, pos=None):
+        if isinstance(input_value, OptionalMetaDataEntry):
             return input_value
         elif isinstance(input_value, tuple):
             return cls(name, *input_value)
@@ -108,45 +109,33 @@ class OptionalMetaDataEntry(IoMetaDataEntry):
 class InputMetaData(object):
     def __init__(self, n_inputs: int,
                  inputs: Dict[str, InputMetaDataEntry]=None,
-                 optional: Dict[str, OptionalMetaDataEntry]=None):
+                 optional: Dict[str, OptionalMetaDataEntry]=None,
+                 pass_optional: bool=False):
         self._n_inputs = n_inputs
+        self._pass_optional = pass_optional
 
-        self._inputs = None
-        self._optional = None
+        self._inputs: Dict[str, InputMetaDataEntry] = {}
+        self._optional: Dict[str, OptionalMetaDataEntry] = {}
 
-        self.inputs = inputs
-        self.optional = optional
+        if inputs is not None:
+            self.inputs = inputs
+        if optional is not None:
+            self.optional = optional
+
+    def _fill_defaults(self):
+        if self._n_inputs == 1:
+            self.inputs = ['x']
+        elif self.n_inputs == 2:
+            self.inputs = ['x', 'y']
+        else:
+            self.inputs = [f'x{idx}' for idx in range(self.n_inputs)]
 
     @classmethod
-    def create_defaults(cls, n_inputs: int, optional=None):
-        new = cls(n_inputs, optional=optional)
-
-        if n_inputs == 1:
-            new.inputs = ['x']
-        elif n_inputs == 2:
-            new.inputs = ['x', 'y']
-        else:
-            new.inputs = [f'x{idx}' for idx in range(n_inputs)]
+    def create_defaults(cls, n_inputs: int, optional=None, pass_optional=False):
+        new = cls(n_inputs, optional=optional, pass_optional=pass_optional)
+        new._fill_defaults()
 
         return new
-
-    def validate(self):
-        if self._inputs is not None:
-            if self._n_inputs != len(self._inputs):
-                raise ValueError('n_inputs must match the number of entries in inputs.')
-
-            for pos, (input_name, input_data) in enumerate(self._inputs.items()):
-                if pos != input_data.pos:
-                    raise ValueError(f"Input: {input_data.name}'s position is information is incorrect.'")
-                if input_name != input_data.name:
-                    raise ValueError(f"Input: {input_data.name}'s key information is incorrect'")
-
-        if self._optional is not None:
-            for input_name, input_data in self._optional.items():
-                if input_name != input_data.name:
-                    raise ValueError(f"Input: {input_data.name}'s key information is incorrect'")
-                if (self._inputs is not None) and (input_name in self._inputs):
-                    raise ValueError(f"Input: {input_name} is both optional and non-optional")
 
     @property
     def n_inputs(self) -> int:
@@ -155,6 +144,7 @@ class InputMetaData(object):
     @n_inputs.setter
     def n_inputs(self, value):
         self._n_inputs = value
+        self._fill_defaults()
 
     @property
     def inputs(self) -> List[str]:
@@ -164,45 +154,80 @@ class InputMetaData(object):
     def optional(self) -> List[str]:
         return list(self._optional.keys())
 
+    def reset_inputs(self):
+        self._inputs = {}
+
+    def reset_optional(self):
+        self._optional = {}
+
+    def validate(self):
+        if (len(self._inputs) > 0) and (self._n_inputs != len(self._inputs)):
+            raise ValueError('n_inputs must match the number of entries in inputs.')
+
+        for pos, (input_name, input_data) in enumerate(self._inputs.items()):
+            if input_name != input_data.name:
+                raise ValueError(f"Input: {input_data.name}'s key information is incorrect'")
+            if pos != input_data.pos:
+                raise ValueError(f"Input: {input_data.name}'s position is information is incorrect.'")
+
+        for input_name, input_data in self._optional.items():
+            if input_name != input_data.name:
+                raise ValueError(f"Optional: {input_data.name}'s key information is incorrect'")
+            if (self._inputs is not None) and (input_name in self._inputs):
+                raise ValueError(f"Optional: {input_name} is both optional and non-optional")
+
     @staticmethod
-    def _process_inputs(value, data_entry):
+    def _process_inputs_atr(value, data_entry) -> dict:
         inputs = {}
-        if isinstance(value, list):
-            for index, input_value in enumerate(value):
-                entry = data_entry.create_entry(input_value, pos=index)
-                inputs[entry.name] = entry
-        elif isinstance(value, dict):
-            for name, input_value in value.items():
-                entry = data_entry.create_entry(input_value, name=name)
-                inputs[entry.name] = entry
-        else:
-            raise ValueError(f'{value} is not a valid way to set inputs')
+        if value is not None:
+            if isinstance(value, list):
+                for index, input_value in enumerate(value):
+                    entry = data_entry.create_entry(input_value, pos=index)
+                    inputs[entry.name] = entry
+            elif isinstance(value, dict):
+                for name, input_value in value.items():
+                    entry = data_entry.create_entry(input_value, name=name)
+                    inputs[entry.name] = entry
+            else:
+                raise ValueError(f'{value} is not a valid way to set inputs')
 
         return inputs
 
+    def _set_inputs_atr(self, atr: str, value, data_entry):
+        if hasattr(self, atr):
+            input_atr = getattr(self, atr)
+            if len(input_atr) != 0:
+                raise RuntimeError(f'Attempting to override currently set {atr[1:]}')
+        else:
+            raise AttributeError('Trying to set non-existent attribute')
+
+        setattr(self, atr, self._process_inputs_atr(value, data_entry))
+
     @inputs.setter
     def inputs(self, value):
-        if self._inputs is None:
-            if value is not None:
-                self._inputs = self._process_inputs(value, InputMetaDataEntry)
-                self.validate()
-        else:
-            raise RuntimeError('Attempting to override currently set inputs')
+        self._set_inputs_atr('_inputs', value, InputMetaDataEntry)
+        self.validate()
 
     @optional.setter
     def optional(self, value):
-        if self._optional is None:
-            if value is not None:
-                self._optional = self._process_inputs(value, OptionalMetaDataEntry)
-                self.validate()
-        else:
-            raise RuntimeError('Attempting to override currently set optional inputs')
+        self._set_inputs_atr('_optional', value, OptionalMetaDataEntry)
+        self.validate()
 
     def get_input_data(self, name: str) -> InputMetaDataEntry:
         return self._inputs[name]
 
     def get_optional_data(self, name: str) -> OptionalMetaDataEntry:
         return self._optional[name]
+
+    def _fill_optional(self, **kwargs) -> dict:
+        for name, optional_input in self._optional.items():
+            if name not in kwargs:
+                kwargs[name] = optional_input.default
+        for name, value in modeling_options.items():
+            if name not in kwargs:
+                kwargs[name] = value
+
+        return kwargs
 
     def _input_kwargs(self, **kwargs) -> Tuple[dict, dict]:
         input_kwargs = {}
@@ -212,25 +237,27 @@ class InputMetaData(object):
                 input_kwargs[name] = kwargs[name]
                 del kwargs[name]
 
-        optional = kwargs
-        for name, optional_input in self._optional.items():
-            if name not in optional:
-                optional[name] = optional_input.default
-        for name, value in modeling_options.items():
-            if name not in optional:
-                optional[name] = value
+        optional = self._fill_optional(**kwargs)
 
         return input_kwargs, optional
+
+    def _check_inputs(self, *args, **kwargs):
+        n_args = len(args) + len(**kwargs)
+        if self._n_inputs < n_args:
+            raise RuntimeError(f'Too many input arguments - expected {self._n_inputs}, got {n_args}')
+        elif self._n_inputs > n_args:
+            raise RuntimeError(f'Too few input arguments - expected {self._n_inputs}, got {n_args}')
+
+        if not self._pass_optional:
+            for name in kwargs:
+                if (name not in self._optional) and (name not in modeling_options):
+                    raise RuntimeError(f'Keyword: {name} has been passed, no undocumented arguments can be passed through!')
 
     def evaluation_inputs(self, *args, **kwargs) -> Tuple[dict, dict]:
         args = list(args)
         input_kwargs, optional = self._input_kwargs(**kwargs)
 
-        n_args = len(args) + len(input_kwargs)
-        if self._n_inputs < n_args:
-            raise RuntimeError(f'Too many input arguments - expected {self._n_inputs}, got {n_args}')
-        elif self._n_inputs > n_args:
-            raise RuntimeError(f'Too few input arguments - expected {self._n_inputs}, got {n_args}')
+        self._check_inputs(*args, **input_kwargs)
 
         inputs = {}
         for name in self._inputs:
