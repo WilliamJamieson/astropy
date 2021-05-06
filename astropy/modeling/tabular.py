@@ -137,6 +137,9 @@ class _Tabular(Model):
         self.method = method
         self.fill_value = fill_value
 
+        # TODO: Fix this hack to get bounding box inter compatibility with refactoring work
+        self._input_meta_data.bounding_box = self.bounding_box
+
     def __repr__(self):
         fmt = "<{}(points={}, lookup_table={})>".format(
             self.__class__.__name__, self.points, self.lookup_table)

@@ -5,6 +5,7 @@ which outputs from a source model are mapped to which inputs of a target model.
 # pylint: disable=invalid-name
 
 from .core import FittableModel, Model
+from .evaluation_io import MetaData
 from astropy.units import Quantity
 
 
@@ -122,6 +123,7 @@ class Mapping(FittableModel):
         inv._outputs = self._inputs
         inv._n_inputs = len(inv._inputs)
         inv._n_outputs = len(inv._outputs)
+        inv._input_meta_data = MetaData.create_defaults(inv._n_inputs, inv._n_outputs)
         return inv
 
 

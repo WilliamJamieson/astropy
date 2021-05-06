@@ -42,6 +42,7 @@ from .utils import (combine_labels, make_binary_operator_eval,
                     _ConstraintsDict, _SpecialOperatorsDict)
 from .parameters import (Parameter, InputParameterError,
                          param_repr_oneline, _tofloat)
+from .evaluation_io import MetaData
 
 
 __all__ = ['Model', 'FittableModel', 'Fittable1DModel', 'Fittable2DModel',
@@ -697,6 +698,8 @@ class Model(metaclass=_ModelMeta):
 
     def __init__(self, *args, meta=None, name=None, **kwargs):
         super().__init__()
+        self._input_meta_data = MetaData.create_defaults(self.n_inputs, self.n_outputs,
+                                                            standard_broadcasting=self.standard_broadcasting)
         self._default_inputs_outputs()
         if meta is not None:
             self.meta = meta
@@ -752,12 +755,13 @@ class Model(metaclass=_ModelMeta):
 
     @property
     def inputs(self):
-        return self._inputs
+        return self._input_meta_data.inputs
 
     @inputs.setter
     def inputs(self, val):
         if len(val) != self.n_inputs:
             raise ValueError(f"Expected {self.n_inputs} number of inputs, got {len(val)}.")
+        self._input_meta_data.inputs = val
         self._inputs = val
         self._initialize_unit_support()
 
@@ -913,6 +917,10 @@ class Model(metaclass=_ModelMeta):
         Evaluate this model using the given input(s) and the parameter values
         that were specified when the model was instantiated.
         """
+
+        params = [getattr(self, name) for name in self.param_names]
+        inputs = self._input_meta_data.prepare_inputs(params, *args, **kwargs)
+
         new_args, kwargs = self._get_renamed_inputs_as_positional(*args, **kwargs)
 
         return generic_call(self, *new_args, **kwargs)
@@ -1298,6 +1306,7 @@ class Model(metaclass=_ModelMeta):
                 raise ValueError(exc.args[0])
 
         self._user_bounding_box = bounding_box
+        self._input_meta_data.bounding_box = bounding_box
 
     @bounding_box.deleter
     def bounding_box(self):
@@ -2044,6 +2053,7 @@ class Model(metaclass=_ModelMeta):
                                 len(args)))
 
         self._model_set_axis = model_set_axis
+        self._input_meta_data.model_set_axis = model_set_axis
         self._param_metrics = defaultdict(dict)
 
         for idx, arg in enumerate(args):
@@ -2136,6 +2146,7 @@ class Model(metaclass=_ModelMeta):
             self._check_param_broadcast(None)
 
         self._n_models = n_models
+        self._input_meta_data.n_models = n_models
         # now validate parameters
         for name in params:
             param = getattr(self, name)
@@ -2532,6 +2543,8 @@ class CompoundModel(Model):
         self._parameters = None
         self._parameters_ = None
         self._param_metrics = None
+
+        self._input_meta_data = MetaData.create_defaults(0, 0)
 
         if inverse:
             warnings.warn(
