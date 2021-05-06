@@ -1,3 +1,7 @@
+# Licensed under a 3-clause BSD style license - see LICENSE.rst
+
+"""Evaluation IO for Models"""
+
 from astropy.units import equivalencies
 import numpy as np
 from typing import Dict, List, Tuple
