@@ -2,10 +2,10 @@
 
 """Evaluation IO for Models"""
 
-from astropy.units import equivalencies
 import numpy as np
 from typing import Dict, List, Tuple
-from collections import UserDict
+
+from astropy.utils.shapes import check_broadcast, IncompatibleShapeError
 
 ordinalities = ['continuous', 'discrete']
 modeling_options = {
@@ -254,9 +254,9 @@ class InputMetaData(object):
         inputs = {}
         for name in self._inputs:
             if name in kwargs:
-                inputs[name] = InputEntry(kwargs[name])
+                inputs[name] = InputEntry(name, kwargs[name])
             else:
-                inputs[name] = InputEntry(args.pop(0))
+                inputs[name] = InputEntry(name, args.pop(0))
 
         return inputs
 
@@ -284,18 +284,22 @@ class InputMetaData(object):
 
 
 class InputEntry(object):
-    def __init__(self, input_value, format_info=None):
+    def __init__(self, name: str, input_value):
+        self._name = name
         self.input = input_value
-        self._format_info = format_info
 
     def __eq__(self, this):
         if isinstance(this, InputEntry):
-            return (self.input == this.input).all() and (self.format_info == this.format_info)
+            return (self.name == this.name) and (self.input == this.input).all()
         else:
             return False
 
     @property
-    def input(self):
+    def name(self) -> str:
+        return self._name
+
+    @property
+    def input(self) -> np.ndarray:
         return self._input
 
     @input.setter
@@ -303,15 +307,130 @@ class InputEntry(object):
         self._input = np.asanyarray(value, dtype=float)
 
     @property
-    def format_info(self):
-        return self._format_info
+    def shape(self) -> tuple:
+        return self._input.shape
 
-    @format_info.setter
-    def format_info(self, value):
-        self._format_info = value
+    @property
+    def input_array(self) -> np.ndarray:
+        # NOTE: this method is for replacing _prepare_inputs_single_model
+
+        # Ensure that array scalars are always upgrade to 1-D arrays for the
+        # sake of consistency with how parameters work.  They will be cast back
+        # to scalars at the end
+        if not self.shape:
+            return self._input.reshape((1,))
+        else:
+            return self._input
+
+    def _array_shape(self, array_shape: bool) -> tuple:
+        if array_shape:
+            # For call in generic_call
+            return self.input_array.shape
+        else:
+            # Call in Model.prepare_inputs
+            return self.shape
+
+    def check_input_shape(self, n_models: int, model_set_axis: int, array_shape: bool) -> tuple:
+        # NOTE: this method is for replacing _validate_input_shapes
+
+        # NOTE: this is currently in place to exactly replicate the two
+        #       calls to _validate_input_shapes
+
+        shape = self._array_shape(array_shape)
+
+        # Ensure that the input's model_set_axis matches the model's
+        # n_models
+        if shape and (n_models > 1) and (model_set_axis is not False):
+            # Note: Scalar inputs *only* get a pass on this
+            if len(shape) < model_set_axis + 1:
+                raise ValueError(f"For model_set_axis={model_set_axis}, " +
+                                 f"all inputs must be at least {model_set_axis + 1}-dimensional.")
+            if shape[model_set_axis] != n_models:
+                raise ValueError(f"Input argument {self._name} does not have the " +
+                                 f"correct dimensions in model_set_axis={model_set_axis} "+
+                                 f"for a model set with n_models={n_models}.")
+
+        return shape
+
+    def _get_param_broadcast(self, param, standard_broadcasting: bool) -> tuple:
+        try:
+            if standard_broadcasting:
+                return check_broadcast(self.shape, param.shape)
+            else:
+                return self.shape
+        except IncompatibleShapeError:
+            raise ValueError(f"Model input argument {self.name} of shape {self.shape} cannot be " +
+                             f"broadcast with parameter {param.name} of shape {param.shape}.")
+
+    def _update_param_broadcast(self, broadcast: tuple, param, standard_broadcasting: bool) -> tuple:
+        new_broadcast = self._get_param_broadcast(param, standard_broadcasting)
+
+        if  len(new_broadcast) > len(broadcast):
+            return new_broadcast
+        elif len(new_broadcast) == len(broadcast):
+            return max(broadcast, new_broadcast)
+        else:
+            return broadcast
+
+    def broadcast(self, params: list, standard_broadcasting: bool) -> tuple:
+        # NOTE: this method is for replacing _prepare_inputs_single_model
+
+        if not params:
+            broadcast = self.shape
+        else:
+            broadcast = ()
+
+        for param in params:
+            broadcast = self._update_param_broadcast(broadcast, param, standard_broadcasting)
+
+        return broadcast
 
 
 class Inputs(object):
-    def __init__(self, inputs: Dict[str, InputEntry], kwargs: Dict[str, InputEntry]):
+    def __init__(self, inputs: Dict[str, InputEntry], kwargs: dict, format_info: list):
         self._inputs = inputs
         self._kwargs = kwargs
+
+        self._format_info = format_info
+
+    @property
+    def n_inputs(self) -> int:
+        return len(self._inputs)
+
+    def _check_input_shape(self, n_models: int, model_set_axis: int, array_shape: bool):
+        # NOTE: this method is for replacing _validate_input_shapes
+        input_shape = check_broadcast(*[_input.check_input_shape(n_models, model_set_axis, array_shape)
+                                        for _input in self._inputs.values()])
+        if input_shape is None:
+            raise ValueError("All inputs must have identical shapes or must be scalars.")
+
+        return input_shape
+
+    def _broadcast(self, params: list, standard_broadcasting: bool, n_outputs: int) -> list:
+        # NOTE: this method is for replacing _prepare_inputs_single_model
+
+        # TODO: could this be a dictionary?
+        broadcasts = [_input.broadcast(params, standard_broadcasting) for _input in self._inputs.values()]
+
+        if n_outputs > self.n_inputs:
+            extra_outputs = n_outputs - self.n_inputs
+            if not broadcasts:
+                # If there were no inputs then the broadcasts list is empty
+                # just add a None since there is no broadcasting of outputs and
+                # inputs necessary (see _prepare_outputs_single_model)
+
+                # TODO: check for broadcast None checks
+                broadcasts.append(tuple())
+            # TODO: check why its always the first one
+            broadcasts.extend([broadcasts[0]] * extra_outputs)
+
+        return broadcasts
+
+    def get_format_info(self, n_models: int, model_set_axis: int, params: list,
+                        standard_broadcasting: bool, n_outputs: int):
+        # Note: this method is for replacing ~Model.prepare_inputs
+
+        self._check_input_shape(n_models, model_set_axis, False)
+        # TODO: add units handling
+
+        self._format_info = self._broadcast(params, standard_broadcasting, n_outputs)
