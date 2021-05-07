@@ -147,6 +147,14 @@ class InputMetaData(object):
         self._fill_defaults()
 
     @property
+    def pass_optional(self) -> bool:
+        return self._pass_optional
+
+    @pass_optional.setter
+    def pass_optional(self, value):
+        self._pass_optional = value
+
+    @property
     def inputs(self) -> List[str]:
         return list(self._inputs.keys())
 
@@ -241,30 +249,36 @@ class InputMetaData(object):
 
         return input_kwargs, optional
 
+    def _get_inputs(self, *args, **kwargs) -> dict:
+        args = list(args)
+        inputs = {}
+        for name in self._inputs:
+            if name in kwargs:
+                inputs[name] = InputEntry(kwargs[name])
+            else:
+                inputs[name] = InputEntry(args.pop(0))
+
+        return inputs
+
     def _check_inputs(self, *args, **kwargs):
-        n_args = len(args) + len(**kwargs)
+        n_args = len(args) + len(kwargs)
         if self._n_inputs < n_args:
             raise RuntimeError(f'Too many input arguments - expected {self._n_inputs}, got {n_args}')
         elif self._n_inputs > n_args:
             raise RuntimeError(f'Too few input arguments - expected {self._n_inputs}, got {n_args}')
 
+    def _check_optional(self, **kwargs):
         if not self._pass_optional:
             for name in kwargs:
-                if (name not in self._optional) and (name not in modeling_options):
+                if not ((name in self._optional) or (name in modeling_options)):
                     raise RuntimeError(f'Keyword: {name} has been passed, no undocumented arguments can be passed through!')
 
     def evaluation_inputs(self, *args, **kwargs) -> Tuple[dict, dict]:
-        args = list(args)
         input_kwargs, optional = self._input_kwargs(**kwargs)
+        self._check_optional(**optional)
 
         self._check_inputs(*args, **input_kwargs)
-
-        inputs = {}
-        for name in self._inputs:
-            if name in input_kwargs:
-                inputs[name] = InputEntry(input_kwargs[name])
-            else:
-                inputs[name] = InputEntry(args.pop(0))
+        inputs = self._get_inputs(*args, **input_kwargs)
 
         return inputs, optional
 
@@ -273,6 +287,12 @@ class InputEntry(object):
     def __init__(self, input_value, format_info=None):
         self.input = input_value
         self._format_info = format_info
+
+    def __eq__(self, this):
+        if isinstance(this, InputEntry):
+            return (self.input == this.input).all() and (self.format_info == this.format_info)
+        else:
+            return False
 
     @property
     def input(self):

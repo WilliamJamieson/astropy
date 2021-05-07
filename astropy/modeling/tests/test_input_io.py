@@ -305,8 +305,9 @@ class TestInputMetaData:
             assert mkFill.call_args_list == [mk.call(inputs)]
 
     def test_n_inputs(self):
-        # Test get
         inputs = input_io.InputMetaData(1)
+
+        # Test get
         assert inputs.n_inputs == 1
         assert inputs._n_inputs == 1
 
@@ -319,6 +320,18 @@ class TestInputMetaData:
             assert inputs._n_inputs == 2
             assert mkFill.call_args_list == [mk.call(inputs)]
             assert inputs._inputs == {}
+
+    def test_pass_optional(self):
+        inputs = input_io.InputMetaData(1)
+
+        # Test get
+        assert not inputs.pass_optional
+        assert not inputs._pass_optional
+
+        # Test set
+        inputs.pass_optional = True
+        assert inputs.pass_optional
+        assert inputs._pass_optional
 
     def test_inputs_get(self):
         inputs = input_io.InputMetaData.create_defaults(1)
@@ -659,3 +672,161 @@ class TestInputMetaData:
             assert optional == mkFill.return_value
 
             assert mkFill.call_args_list == [mk.call(inputs, test=3)]
+
+    def test__get_inputs(self):
+        inputs = input_io.InputMetaData.create_defaults(3)
+        true_inputs = {f'x{idx}': input_io.InputEntry(idx) for idx in range(3)}
+
+        assert true_inputs == inputs._get_inputs(0, 1, 2)
+        assert true_inputs == inputs._get_inputs(0, 1, x2=2)
+        assert true_inputs == inputs._get_inputs(0, 2, x1=1)
+        assert true_inputs == inputs._get_inputs(1, 2, x0=0)
+        assert true_inputs == inputs._get_inputs(0, x1=1, x2=2)
+        assert true_inputs == inputs._get_inputs(1, x0=0, x2=2)
+        assert true_inputs == inputs._get_inputs(2, x0=0, x1=1)
+        assert true_inputs == inputs._get_inputs(x0=0, x1=1, x2=2)
+
+    def test__check_inputs(self):
+        inputs = input_io.InputMetaData.create_defaults(3)
+        assert inputs._n_inputs == 3
+
+        # Too many args
+        with pytest.raises(RuntimeError, match=r"Too many .*"):
+            inputs._check_inputs(1, 2, 3, 4)
+        with pytest.raises(RuntimeError, match=r"Too many .*"):
+            inputs._check_inputs(1, 2, 3, a=4)
+        with pytest.raises(RuntimeError, match=r"Too many .*"):
+            inputs._check_inputs(1, 2, b=3, a=4)
+        with pytest.raises(RuntimeError, match=r"Too many .*"):
+            inputs._check_inputs(1, c=2, b=3, a=4)
+        with pytest.raises(RuntimeError, match=r"Too many .*"):
+            inputs._check_inputs(d=1, c=2, b=3, a=4)
+
+        # Too few args
+        with pytest.raises(RuntimeError, match=r"Too few .*"):
+            inputs._check_inputs()
+        with pytest.raises(RuntimeError, match=r"Too few .*"):
+            inputs._check_inputs(1)
+        with pytest.raises(RuntimeError, match=r"Too few .*"):
+            inputs._check_inputs(1, 2)
+        with pytest.raises(RuntimeError, match=r"Too few .*"):
+            inputs._check_inputs(1, a=2)
+        with pytest.raises(RuntimeError, match=r"Too few .*"):
+            inputs._check_inputs(b=1, a=2)
+
+    def test__check_optional(self):
+        optional = {'z0': input_io.OptionalMetaDataEntry('z0'),
+                    'z1': input_io.OptionalMetaDataEntry('z1'),
+                    'z2': input_io.OptionalMetaDataEntry('z2')}
+        inputs = input_io.InputMetaData.create_defaults(1, optional=optional)
+        assert not inputs._pass_optional
+
+        # Passes when not pass_through
+        inputs._check_optional()
+        kwargs = input_io.modeling_options.copy()
+        inputs._check_optional(**kwargs)
+        for name in optional:
+            kwargs[name] = mk.MagicMock()
+            inputs._check_optional(**kwargs)
+
+        # Fail when not pass_through
+        kwargs['test'] = mk.MagicMock()
+        with pytest.raises(RuntimeError):
+            inputs._check_optional(**kwargs)
+
+        # No fail when pass optional enabled
+        inputs._pass_optional = True
+        inputs._check_optional(**kwargs)
+
+    def test_evaluation_inputs(self):
+        optional = {'z0': input_io.OptionalMetaDataEntry('z0', 'z0'),
+                    'z1': input_io.OptionalMetaDataEntry('z1', 'z0'),
+                    'z2': input_io.OptionalMetaDataEntry('z2', 'z0')}
+        inputs = input_io.InputMetaData.create_defaults(3, optional=optional)
+        true_inputs = {f'x{idx}': input_io.InputEntry(idx) for idx in range(3)}
+
+        # No optional
+        true_optional = input_io.modeling_options.copy()
+        for name, value in optional.items():
+            true_optional[name] = value.default
+        eval_inputs, eval_optional = inputs.evaluation_inputs(0, 1, 2)
+        assert eval_inputs == true_inputs
+        assert eval_optional == true_optional
+        eval_inputs, eval_optional = inputs.evaluation_inputs(0, 1, x2=2)
+        assert eval_inputs == true_inputs
+        assert eval_optional == true_optional
+        eval_inputs, eval_optional = inputs.evaluation_inputs(0, 2, x1=1)
+        assert eval_inputs == true_inputs
+        assert eval_optional == true_optional
+        eval_inputs, eval_optional = inputs.evaluation_inputs(1, 2, x0=0)
+        assert eval_inputs == true_inputs
+        assert eval_optional == true_optional
+        eval_inputs, eval_optional = inputs.evaluation_inputs(0, x1=1, x2=2)
+        assert eval_inputs == true_inputs
+        assert eval_optional == true_optional
+        eval_inputs, eval_optional = inputs.evaluation_inputs(1, x0=0, x2=2)
+        assert eval_inputs == true_inputs
+        assert eval_optional == true_optional
+        eval_inputs, eval_optional = inputs.evaluation_inputs(2, x0=0, x1=1)
+        assert eval_inputs == true_inputs
+        assert eval_optional == true_optional
+        eval_inputs, eval_optional = inputs.evaluation_inputs(x0=0, x1=1, x2=2)
+        assert eval_inputs == true_inputs
+        assert eval_optional == true_optional
+
+        # Optional
+        true_optional['z0'] = 0
+        eval_inputs, eval_optional = inputs.evaluation_inputs(0, 1, 2, z0=0)
+        assert eval_inputs == true_inputs
+        assert eval_optional == true_optional
+
+
+class TestInputEntry:
+    def test___init__(self):
+        entry = input_io.InputEntry(1)
+        assert entry._input == np.asanyarray(1)
+        assert entry._format_info is None
+
+        entry = input_io.InputEntry(1, 'test')
+        assert entry._input == np.asanyarray(1)
+        assert entry._format_info == 'test'
+
+    def test___eq__(self):
+        format_info = mk.MagicMock()
+        assert input_io.InputEntry(1) == input_io.InputEntry(1)
+        assert input_io.InputEntry([1, 2]) == input_io.InputEntry([1, 2])
+        assert input_io.InputEntry([1, 2], format_info) == input_io.InputEntry([1, 2], format_info)
+
+        entry = input_io.InputEntry([1, 2], format_info)
+        fake_entry = mk.MagicMock()
+        fake_entry.input = entry.input
+        fake_entry.format_info = entry.format_info
+        assert not (entry == fake_entry)
+
+    def test_input(self):
+        with mk.patch.object(np, 'asanyarray', autospec=True) as mkNp:
+            entry = input_io.InputEntry(1)
+            assert mkNp.call_args_list == [mk.call(1, dtype=float)]
+            mkNp.reset_mock()
+
+            # Test get
+            assert entry.input == mkNp.return_value
+            assert entry._input == mkNp.return_value
+
+            # Test set
+            entry.input = 2
+            assert mkNp.call_args_list == [mk.call(2, dtype=float)]
+            assert entry.input == mkNp.return_value
+            assert entry._input == mkNp.return_value
+
+    def test_format_info(self):
+        entry = input_io.InputEntry(1)
+
+        # Test get
+        assert entry.format_info is None
+        assert entry._format_info is None
+
+        # Test set
+        entry.format_info = 5
+        assert entry.format_info == 5
+        assert entry._format_info == 5
