@@ -533,6 +533,26 @@ class _BoundingBox(tuple):
         else:
             raise ValueError('Bounding box must have positive dimension')
 
+    def outside(self, value):
+        """
+        Given a value determine if the value (or parts of the value) are outside
+        the bounding box.
+
+        Parameters
+        ----------
+        value : array-like
+
+        Notes
+        -----
+        This will only work for 1D bounding boxes
+        """
+
+        if self.dimension == 1:
+            value = np.asanyarray(value)
+            return np.logical_or(value < self[0], value > self[1])
+        else:
+            raise NotImplementedError('This is only supported for 1D bounding box')
+
 
 def make_binary_operator_eval(oper, f, g):
     """

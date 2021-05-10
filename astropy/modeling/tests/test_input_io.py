@@ -8,6 +8,7 @@ import unittest.mock as mk
 
 from astropy.modeling import input_io
 from astropy.utils import shapes as utils_shapes
+from astropy.modeling.utils import _BoundingBox
 
 
 class TestIoMetaDataEntry(object):
@@ -48,15 +49,12 @@ class TestInputMetaDataEntry:
         entry = input_io.InputMetaDataEntry()
         assert entry._name is None
         assert entry._pos is None
-        assert entry._ordinality == 'continuous'
+        assert entry._bounding_box is None
 
-        entry = input_io.InputMetaDataEntry('test', 1, 'discrete')
+        entry = input_io.InputMetaDataEntry('test', 1, _BoundingBox((-1, 1)))
         assert entry._name == 'test'
         assert entry._pos == 1
-        assert entry._ordinality == 'discrete'
-
-        with pytest.raises(ValueError):
-            input_io.InputMetaDataEntry(ordinality='test')
+        assert entry._bounding_box == _BoundingBox((-1, 1))
 
     def test_pos(self):
         # test get error
@@ -78,27 +76,27 @@ class TestInputMetaDataEntry:
         assert entry.pos == 1
         assert entry._pos == 1
 
-    def test_ordinality(self):
-        # test get
+    def test_bounding_box(self):
+        # test get error
         entry = input_io.InputMetaDataEntry()
-        assert entry.ordinality == 'continuous'
-        assert entry._ordinality == 'continuous'
-        entry.ordinality = 'discrete'
-        assert entry.ordinality == 'discrete'
-        assert entry._ordinality == 'discrete'
+        with pytest.raises(NotImplementedError):
+            entry.bounding_box
 
-        entry = input_io.InputMetaDataEntry(ordinality='discrete')
-        assert entry.ordinality == 'discrete'
-        assert entry._ordinality == 'discrete'
-        entry.ordinality = 'continuous'
-        assert entry.ordinality == 'continuous'
-        assert entry._ordinality == 'continuous'
+        # test set and get without error
+        value = mk.MagicMock()
+        bbox = mk.MagicMock()
+        with mk.patch.object(input_io, '_BoundingBox', autospec=True,
+                             return_value=bbox) as mkBbox:
+            entry.bounding_box = value
+            assert entry.bounding_box == bbox
+            assert entry._bounding_box == bbox
+            assert mkBbox.call_args_list == [mk.call(value)]
 
-        # test set with error
-        with pytest.raises(ValueError):
-            entry.ordinality = 'test'
-        entry.ordinality = 'continuous'
-        entry._ordinality = 'continuous'
+        # test set as None
+        entry.bounding_box = None
+        assert entry._bounding_box is None
+        with pytest.raises(NotImplementedError):
+            entry.bounding_box
 
     def test_create_entry(self):
         # test pass input metadata entry in
@@ -113,49 +111,58 @@ class TestInputMetaDataEntry:
         assert entry == input_value
 
         # test pass tuple in
-        entry = input_io.InputMetaDataEntry.create_entry((1, 'discrete'))
+        entry = input_io.InputMetaDataEntry.create_entry((1, (-1, 1)))
         assert entry._name is None
         assert entry._pos == 1
-        assert entry._ordinality == 'discrete'
-        entry = input_io.InputMetaDataEntry.create_entry((1, 'discrete'), name='test')
+        assert entry._bounding_box == (-1, 1)
+        entry = input_io.InputMetaDataEntry.create_entry((1, (-1, 1)), name='test')
         assert entry._name == 'test'
         assert entry._pos == 1
-        assert entry._ordinality == 'discrete'
-        entry = input_io.InputMetaDataEntry.create_entry((1, 'discrete'), name='test', pos=2)
+        assert entry._bounding_box == (-1, 1)
+        entry = input_io.InputMetaDataEntry.create_entry((1, (-1, 1)), name='test', pos=2)
         assert entry._name == 'test'
         assert entry._pos == 1
-        assert entry._ordinality == 'discrete'
+        assert entry._bounding_box == (-1, 1)
         entry = input_io.InputMetaDataEntry.create_entry((1,))
         assert entry._name is None
         assert entry._pos == 1
-        assert entry._ordinality == 'continuous'
+        assert entry._bounding_box is None
         entry = input_io.InputMetaDataEntry.create_entry((1,), name='test')
         assert entry._name == 'test'
         assert entry._pos == 1
-        assert entry._ordinality == 'continuous'
+        assert entry._bounding_box is None
         entry = input_io.InputMetaDataEntry.create_entry((1,), name='test', pos=2)
         assert entry._name == 'test'
         assert entry._pos == 1
-        assert entry._ordinality == 'continuous'
+        assert entry._bounding_box is None
 
         # test pass str in
         entry = input_io.InputMetaDataEntry.create_entry('test')
         assert entry._name == 'test'
         assert entry._pos is None
-        assert entry._ordinality == 'continuous'
+        assert entry._bounding_box is None
         entry = input_io.InputMetaDataEntry.create_entry('test', name=mk.MagicMock())
         assert entry._name == 'test'
         assert entry._pos is None
-        assert entry._ordinality == 'continuous'
+        assert entry._bounding_box is None
         entry = input_io.InputMetaDataEntry.create_entry('test', name=mk.MagicMock(), pos=1)
         assert entry._name == 'test'
         assert entry._pos == 1
-        assert entry._ordinality == 'continuous'
+        assert entry._bounding_box is None
 
         # test pass bad input
         with pytest.raises(ValueError):
             input_io.InputMetaDataEntry.create_entry(mk.MagicMock())
 
+
+    def test_outside(self):
+        entry = input_io.InputMetaDataEntry()
+        value = mk.MagicMock()
+        with mk.patch.object(input_io.InputMetaDataEntry, 'bounding_box',
+                             new_callable=mk.PropertyMock) as mkBbox:
+            assert entry.outside(value) == mkBbox.return_value.outside.return_value
+            assert mkBbox.call_args_list == [mk.call()]
+            assert mkBbox.return_value.outside.call_args_list == [mk.call(value)]
 
 class TestOptionalMetaDataEntry:
     def test___init__(self):
@@ -248,7 +255,7 @@ class TestInputMetaData:
         assert 'x' in inputs._inputs
         assert inputs._inputs['x'].name == 'x'
         assert inputs._inputs['x'].pos == 0
-        assert inputs._inputs['x'].ordinality == 'continuous'
+        assert inputs._inputs['x']._bounding_box is None
 
         # 2D
         inputs = input_io.InputMetaData(2)
@@ -260,11 +267,11 @@ class TestInputMetaData:
         assert 'x' in inputs._inputs
         assert inputs._inputs['x'].name == 'x'
         assert inputs._inputs['x'].pos == 0
-        assert inputs._inputs['x'].ordinality == 'continuous'
+        assert inputs._inputs['x']._bounding_box is None
         assert 'y' in inputs._inputs
         assert inputs._inputs['y'].name == 'y'
         assert inputs._inputs['y'].pos == 1
-        assert inputs._inputs['y'].ordinality == 'continuous'
+        assert inputs._inputs['y']._bounding_box is None
 
         # 3D
         inputs = input_io.InputMetaData(3)
@@ -276,15 +283,15 @@ class TestInputMetaData:
         assert 'x0' in inputs._inputs
         assert inputs._inputs['x0'].name == 'x0'
         assert inputs._inputs['x0'].pos == 0
-        assert inputs._inputs['x0'].ordinality == 'continuous'
+        assert inputs._inputs['x0']._bounding_box is None
         assert 'x1' in inputs._inputs
         assert inputs._inputs['x1'].name == 'x1'
         assert inputs._inputs['x1'].pos == 1
-        assert inputs._inputs['x1'].ordinality == 'continuous'
+        assert inputs._inputs['x1']._bounding_box is None
         assert 'x2' in inputs._inputs
         assert inputs._inputs['x2'].name == 'x2'
         assert inputs._inputs['x2'].pos == 2
-        assert inputs._inputs['x2'].ordinality == 'continuous'
+        assert inputs._inputs['x2']._bounding_box is None
 
     def test_create_defaults(self):
         with mk.patch.object(input_io.InputMetaData, '_fill_defaults',
@@ -522,19 +529,19 @@ class TestInputMetaData:
         assert isinstance(data, input_io.InputMetaDataEntry)
         assert data.name == 'x0'
         assert data.pos == 0
-        assert data.ordinality == 'continuous'
+        assert data._bounding_box is None
 
         data = inputs.get_input_data('x1')
         assert isinstance(data, input_io.InputMetaDataEntry)
         assert data.name == 'x1'
         assert data.pos == 1
-        assert data.ordinality == 'continuous'
+        assert data._bounding_box is None
 
         data = inputs.get_input_data('x2')
         assert isinstance(data, input_io.InputMetaDataEntry)
         assert data.name == 'x2'
         assert data.pos == 2
-        assert data.ordinality == 'continuous'
+        assert data._bounding_box is None
 
     def test_get_optional_data(self):
         optional = {'z0': input_io.OptionalMetaDataEntry('z0'),

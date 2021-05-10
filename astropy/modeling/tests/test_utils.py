@@ -9,7 +9,7 @@ from astropy.utils.exceptions import AstropyDeprecationWarning
 from astropy.modeling.utils import ExpressionTree as ET, ellipse_extent
 from astropy.modeling.models import Ellipse2D
 
-from astropy.modeling.utils import _SpecialOperatorsDict
+from astropy.modeling.utils import _SpecialOperatorsDict, _BoundingBox
 
 
 def test_traverse_postorder_duplicate_subtrees():
@@ -103,6 +103,16 @@ def test_ellipse_extent():
         s = actual.sum(axis=i)
         diff = np.abs(limits[2 * i] - np.where(s > 0)[0][0])
         assert diff < 1
+
+
+def test__BoundingBox_outside():
+    bbox = _BoundingBox((-1, 1))
+    assert not bbox.outside(0)
+    assert bbox.outside(2)
+    assert bbox.outside(-2)
+
+    assert (bbox.outside(np.array([-3, -2, -1, 0, 1, 2, 3])) == \
+        [True, True, False, False, False, True, True]).all()
 
 
 def test__SpecialOperatorsDict__set_value():

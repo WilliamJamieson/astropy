@@ -6,8 +6,8 @@ import numpy as np
 from typing import Dict, List, Tuple
 
 from astropy.utils.shapes import check_broadcast, IncompatibleShapeError
+from astropy.modeling.utils import _BoundingBox
 
-ordinalities = ['continuous', 'discrete']
 modeling_options = {
     'model_set_axis': None,
     'with_bounding_box': False,
@@ -41,11 +41,11 @@ class IoMetaDataEntry(object):
 
 
 class InputMetaDataEntry(IoMetaDataEntry):
-    def __init__(self, name: str=None, pos: int=None, ordinality: str='continuous'):
+    def __init__(self, name: str=None, pos: int=None, bounding_box: _BoundingBox=None):
         super().__init__(name)
 
         self._pos = pos
-        self.ordinality = ordinality
+        self.bounding_box = bounding_box
 
     @property
     def pos(self) -> int:
@@ -62,15 +62,18 @@ class InputMetaDataEntry(IoMetaDataEntry):
             raise ValueError(f'Input {self.name} has position specified already')
 
     @property
-    def ordinality(self) -> str:
-        return self._ordinality
-
-    @ordinality.setter
-    def ordinality(self, value: str):
-        if value in ordinalities:
-            self._ordinality = value
+    def bounding_box(self) -> _BoundingBox:
+        if self._bounding_box is None:
+            raise NotImplementedError('No bounding_box has been assigned to input {self._name}')
         else:
-            raise ValueError(f'{value} is not one of {ordinalities}')
+            return self._bounding_box
+
+    @bounding_box.setter
+    def bounding_box(self, value):
+        if value is None:
+            self._bounding_box = None
+        else:
+            self._bounding_box = _BoundingBox(value)
 
     @classmethod
     def create_entry(cls, input_value, *, name=None, pos=None):
@@ -82,6 +85,9 @@ class InputMetaDataEntry(IoMetaDataEntry):
             return cls(input_value, pos)
         else:
             raise ValueError(f'{input_value} is not a valid way to set an input')
+
+    def outside(self, value):
+        return self.bounding_box.outside(value)
 
 
 class OptionalMetaDataEntry(IoMetaDataEntry):
