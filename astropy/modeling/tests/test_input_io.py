@@ -11,7 +11,257 @@ from astropy.utils import shapes as utils_shapes
 from astropy.modeling.utils import _BoundingBox
 
 
-class TestIoMetaDataEntry(object):
+class TestInputEntry:
+    def test___init__(self):
+        entry = input_io.InputEntry('name', 1)
+        assert entry._name == 'name'
+        assert entry._input == np.asanyarray(1)
+
+        entry = input_io.InputEntry('name', 1)
+        assert entry._name == 'name'
+        assert entry._input == np.asanyarray(1)
+
+    def test___eq__(self):
+        assert input_io.InputEntry('name', 1) == input_io.InputEntry('name', 1)
+        assert input_io.InputEntry('name', [1, 2]) == input_io.InputEntry('name', [1, 2])
+        assert input_io.InputEntry('name', [1, 2]) == input_io.InputEntry('name', [1, 2])
+
+        entry = input_io.InputEntry('name', [1, 2])
+        fake_entry = mk.MagicMock()
+        fake_entry.name = entry.name
+        fake_entry.input = entry.input
+        assert not (entry == fake_entry)
+
+    def test_name(self):
+        entry = input_io.InputEntry('name', 1)
+        assert entry.name == 'name'
+        assert entry._name == 'name'
+
+    def test_input(self):
+        with mk.patch.object(np, 'asanyarray', autospec=True) as mkNp:
+            entry = input_io.InputEntry('name', 1)
+            assert mkNp.call_args_list == [mk.call(1, dtype=float)]
+            mkNp.reset_mock()
+
+            # Test get
+            assert entry.input == mkNp.return_value
+            assert entry._input == mkNp.return_value
+
+            # Test set
+            entry.input = 2
+            assert mkNp.call_args_list == [mk.call(2, dtype=float)]
+            assert entry.input == mkNp.return_value
+            assert entry._input == mkNp.return_value
+
+    def test_shape(self):
+        entry = input_io.InputEntry('name', 1)
+        assert entry.shape == tuple()
+
+        entry = input_io.InputEntry('name', [1, 2])
+        assert entry.shape == (2,)
+
+        entry = input_io.InputEntry('name', np.ones((2, 2)))
+        assert entry.shape == (2, 2)
+
+        entry = input_io.InputEntry('name', np.ones((2, 2, 2)))
+        assert entry.shape == (2, 2, 2)
+
+    def test_input_array(self):
+        # Cast scalar to array
+        entry = input_io.InputEntry('name', 1)
+        assert entry.input_array.shape == np.array([1], dtype=float).shape
+        assert entry.input_array.shape != entry.input.shape
+        assert entry.input_array == entry.input
+
+        # Leave array alone
+        entry = input_io.InputEntry('name', [1, 2])
+        assert entry.input_array.shape == np.array([1, 2], dtype=float).shape
+        assert entry.input_array.shape == entry.input.shape
+        assert (entry.input_array == entry.input).all()
+
+    def test__array_shape(self):
+        entry = input_io.InputEntry('name', 1)
+        assert entry._array_shape(True) == (1,)
+        assert entry._array_shape(False) == tuple()
+
+        entry = input_io.InputEntry('name', [1, 2])
+        assert entry._array_shape(True) == (2,)
+        assert entry._array_shape(False) == (2,)
+
+    def test_check_input_shape(self):
+        entry = input_io.InputEntry('name', 1)
+        array_shape = mk.MagicMock()
+
+        # Passes
+        shapes = [tuple(), (1,), (4,), (2,)]
+        with mk.patch.object(input_io.InputEntry, '_array_shape', autospec=True,
+                             side_effect=shapes) as mkShape:
+            # Shape is false
+            assert entry.check_input_shape(2, 0, array_shape) == shapes[0]
+            assert mkShape.call_args_list == [mk.call(entry, array_shape)]
+            mkShape.reset_mock()
+
+            # Non-empty correct shape, n_models <= 1, model_set_axis not False
+            assert entry.check_input_shape(1, 0, array_shape) == shapes[1]
+            assert mkShape.call_args_list == [mk.call(entry, array_shape)]
+            mkShape.reset_mock()
+
+            # Non-empty correct shape, n_models > 1, model_set_axis is False
+            assert entry.check_input_shape(5, False, array_shape) == shapes[2]
+            assert mkShape.call_args_list == [mk.call(entry, array_shape)]
+            mkShape.reset_mock()
+
+            # Non-empty correct shape, n_models > 1, model_set_axis not False
+            assert entry.check_input_shape(2, 0, array_shape) == shapes[3]
+            assert mkShape.call_args_list == [mk.call(entry, array_shape)]
+
+        # Fails
+        shapes = [(2,), (1,)]
+        with mk.patch.object(input_io.InputEntry, '_array_shape', autospec=True,
+                             side_effect=shapes) as mkShape:
+            # len(shape) < model_set_axis + 1
+            with pytest.raises(ValueError, match=r"For model_set_axis=.*"):
+                entry.check_input_shape(2, 1, array_shape)
+            assert mkShape.call_args_list == [mk.call(entry, array_shape)]
+            mkShape.reset_mock()
+
+            # shape[model_set_axis] != n_models
+            with pytest.raises(ValueError, match=r"Input argument .*"):
+                entry.check_input_shape(2, 0, array_shape)
+            assert mkShape.call_args_list == [mk.call(entry, array_shape)]
+
+    def test__get_param_broadcast(self):
+        entry = input_io.InputEntry('name', 1)
+        param = mk.MagicMock()
+
+        effects = [mk.MagicMock(), input_io.IncompatibleShapeError(1, 2, 3, 4)]
+        with mk.patch.object(input_io, 'check_broadcast', autospec=True,
+                             side_effect=effects) as mkCheck:
+            with mk.patch.object(input_io.InputEntry, 'shape',
+                                 new_callable=mk.PropertyMock) as mkShape:
+                # Standard broadcast success
+                assert entry._get_param_broadcast(param, True) == effects[0]
+                assert mkCheck.call_args_list == [mk.call(mkShape.return_value, param.shape)]
+                assert mkShape.call_args_list == [mk.call()]
+                mkCheck.reset_mock()
+                mkShape.reset_mock()
+
+                # Standard broadcast fail
+                with pytest.raises(ValueError):
+                    entry._get_param_broadcast(param, True)
+                assert mkCheck.call_args_list == [mk.call(mkShape.return_value, param.shape)]
+                assert mkShape.call_args_list == [mk.call(), mk.call()]
+                mkCheck.reset_mock()
+                mkShape.reset_mock()
+
+                # No standard broadcast
+                assert entry._get_param_broadcast(param, False) == mkShape.return_value
+                assert mkCheck.call_args_list == []
+                assert mkShape.call_args_list == [mk.call()]
+
+    def test__update_param_broadcast(self):
+        entry = input_io.InputEntry('name', 1)
+        broadcast = (2,)
+        param = mk.MagicMock()
+        standard_broadcasting = mk.MagicMock()
+
+        effects = [tuple(), (1,), (3,), (3, 4)]
+        with mk.patch.object(input_io.InputEntry, '_get_param_broadcast',
+                             autospec=True, side_effect=effects) as mkGet:
+            # broadcast longer than new
+            assert entry._update_param_broadcast(broadcast, param, standard_broadcasting) == (2,)
+            assert mkGet.call_args_list == [mk.call(entry, param, standard_broadcasting)]
+            mkGet.reset_mock()
+
+            # broadcast has same length as new, but larger
+            assert entry._update_param_broadcast(broadcast, param, standard_broadcasting) == (2,)
+            assert mkGet.call_args_list == [mk.call(entry, param, standard_broadcasting)]
+            mkGet.reset_mock()
+
+            # broadcast has same length as new, but smaller
+            assert entry._update_param_broadcast(broadcast, param, standard_broadcasting) == (3,)
+            assert mkGet.call_args_list == [mk.call(entry, param, standard_broadcasting)]
+            mkGet.reset_mock()
+
+            # broadcast shorter than new
+            assert entry._update_param_broadcast(broadcast, param, standard_broadcasting) == (3, 4)
+            assert mkGet.call_args_list == [mk.call(entry, param, standard_broadcasting)]
+
+    def test_broadcast(self):
+        entry = input_io.InputEntry('name', 1)
+        params = [mk.MagicMock() for _ in range(3)]
+        standard_broadcasting = mk.MagicMock()
+
+        effects = [mk.MagicMock() for _ in range(3)]
+        with mk.patch.object(input_io.InputEntry, '_update_param_broadcast',
+                             autospec=True, side_effect=effects) as mkUpdate:
+            with mk.patch.object(input_io.InputEntry, 'shape',
+                                 new_callable=mk.PropertyMock) as mkShape:
+                # Has params
+                assert entry.broadcast(params, standard_broadcasting) == effects[2]
+                assert mkUpdate.call_args_list == \
+                    [mk.call(entry, (),         params[0], standard_broadcasting),
+                     mk.call(entry, effects[0], params[1], standard_broadcasting),
+                     mk.call(entry, effects[1], params[2], standard_broadcasting)]
+                assert mkShape.call_args_list == []
+                mkUpdate.reset_mock()
+
+                # Has no params
+                assert entry.broadcast([], standard_broadcasting) == mkShape.return_value
+                assert mkUpdate.call_args_list == []
+                assert mkShape.call_args_list == [mk.call()]
+
+
+class TestInputs:
+    def test___init__(self):
+        inputs = input_io.Inputs({'test': input_io.InputEntry('test', 1)}, {'option': 2}, [3])
+        assert inputs._inputs == {'test': input_io.InputEntry('test', 1)}
+        assert inputs._optional == {'option': 2}
+        assert inputs._format_info == [3]
+
+    def test_n_inputs(self):
+        inputs = input_io.Inputs({'test': input_io.InputEntry('test', 1)}, {'option': 2}, [3])
+        assert inputs.n_inputs == 1
+
+        inputs = input_io.Inputs({'test': input_io.InputEntry('test', 1),
+                                  'next': input_io.InputEntry('next', 2)}, {'option': 2}, [3])
+        assert inputs.n_inputs == 2
+
+    def test__check_input_shape(self):
+        inputs = input_io.Inputs({}, {}, [])
+        entries = {f"x{idx}": mk.MagicMock() for idx in range(3)}
+        inputs._inputs = entries
+
+        check_args = [entry.check_input_shape.return_value for entry in entries.values()]
+
+        n_models = mk.MagicMock()
+        model_set_axis = mk.MagicMock()
+        array_shape = mk.MagicMock()
+
+        effects = [mk.MagicMock(), None]
+        with mk.patch.object(input_io, 'check_broadcast', autospec=True,
+                             side_effect=effects) as mkCheck:
+            # Success
+            assert inputs._check_input_shape(n_models, model_set_axis, array_shape) == effects[0]
+            for entry in entries.values():
+                assert entry.check_input_shape.call_args_list == \
+                    [mk.call(n_models, model_set_axis, array_shape)]
+                entry.check_input_shape.reset_mock()
+            assert mkCheck.call_args_list == [mk.call(*check_args)]
+            mkCheck.reset_mock()
+
+            # Fail
+            with pytest.raises(ValueError):
+                inputs._check_input_shape(n_models, model_set_axis, array_shape)
+            for entry in entries.values():
+                assert entry.check_input_shape.call_args_list == \
+                    [mk.call(n_models, model_set_axis, array_shape)]
+                entry.check_input_shape.reset_mock()
+            assert mkCheck.call_args_list == [mk.call(*check_args)]
+            mkCheck.reset_mock()
+
+
+class TestIoMetaDataEntry:
     def test___init__(self):
         entry = input_io.IoMetaDataEntry()
         assert entry._name is None
@@ -154,7 +404,6 @@ class TestInputMetaDataEntry:
         with pytest.raises(ValueError):
             input_io.InputMetaDataEntry.create_entry(mk.MagicMock())
 
-
     def test_outside(self):
         entry = input_io.InputMetaDataEntry()
         value = mk.MagicMock()
@@ -163,6 +412,7 @@ class TestInputMetaDataEntry:
             assert entry.outside(value) == mkBbox.return_value.outside.return_value
             assert mkBbox.call_args_list == [mk.call()]
             assert mkBbox.return_value.outside.call_args_list == [mk.call(value)]
+
 
 class TestOptionalMetaDataEntry:
     def test___init__(self):
@@ -757,285 +1007,19 @@ class TestInputMetaData:
 
         # No optional
         true_optional = input_io.modeling_options.copy()
+        true_eval = input_io.Inputs(true_inputs, true_optional, [])
         for name, value in optional.items():
             true_optional[name] = value.default
-        eval_inputs, eval_optional = inputs.evaluation_inputs(0, 1, 2)
-        assert eval_inputs == true_inputs
-        assert eval_optional == true_optional
-        eval_inputs, eval_optional = inputs.evaluation_inputs(0, 1, x2=2)
-        assert eval_inputs == true_inputs
-        assert eval_optional == true_optional
-        eval_inputs, eval_optional = inputs.evaluation_inputs(0, 2, x1=1)
-        assert eval_inputs == true_inputs
-        assert eval_optional == true_optional
-        eval_inputs, eval_optional = inputs.evaluation_inputs(1, 2, x0=0)
-        assert eval_inputs == true_inputs
-        assert eval_optional == true_optional
-        eval_inputs, eval_optional = inputs.evaluation_inputs(0, x1=1, x2=2)
-        assert eval_inputs == true_inputs
-        assert eval_optional == true_optional
-        eval_inputs, eval_optional = inputs.evaluation_inputs(1, x0=0, x2=2)
-        assert eval_inputs == true_inputs
-        assert eval_optional == true_optional
-        eval_inputs, eval_optional = inputs.evaluation_inputs(2, x0=0, x1=1)
-        assert eval_inputs == true_inputs
-        assert eval_optional == true_optional
-        eval_inputs, eval_optional = inputs.evaluation_inputs(x0=0, x1=1, x2=2)
-        assert eval_inputs == true_inputs
-        assert eval_optional == true_optional
+        assert inputs.evaluation_inputs(0, 1, 2)          == true_eval
+        assert inputs.evaluation_inputs(0, 1, x2=2)       == true_eval
+        assert inputs.evaluation_inputs(0, 2, x1=1)       == true_eval
+        assert inputs.evaluation_inputs(1, 2, x0=0)       == true_eval
+        assert inputs.evaluation_inputs(0, x1=1, x2=2)    == true_eval
+        assert inputs.evaluation_inputs(1, x0=0, x2=2)    == true_eval
+        assert inputs.evaluation_inputs(2, x0=0, x1=1)    == true_eval
+        assert inputs.evaluation_inputs(x0=0, x1=1, x2=2) == true_eval
 
         # Optional
         true_optional['z0'] = 0
-        eval_inputs, eval_optional = inputs.evaluation_inputs(0, 1, 2, z0=0)
-        assert eval_inputs == true_inputs
-        assert eval_optional == true_optional
-
-
-class TestInputEntry:
-    def test___init__(self):
-        entry = input_io.InputEntry('name', 1)
-        assert entry._name == 'name'
-        assert entry._input == np.asanyarray(1)
-
-        entry = input_io.InputEntry('name', 1)
-        assert entry._name == 'name'
-        assert entry._input == np.asanyarray(1)
-
-    def test___eq__(self):
-        assert input_io.InputEntry('name', 1) == input_io.InputEntry('name', 1)
-        assert input_io.InputEntry('name', [1, 2]) == input_io.InputEntry('name', [1, 2])
-        assert input_io.InputEntry('name', [1, 2]) == input_io.InputEntry('name', [1, 2])
-
-        entry = input_io.InputEntry('name', [1, 2])
-        fake_entry = mk.MagicMock()
-        fake_entry.name = entry.name
-        fake_entry.input = entry.input
-        assert not (entry == fake_entry)
-
-    def test_name(self):
-        entry = input_io.InputEntry('name', 1)
-        assert entry.name == 'name'
-        assert entry._name == 'name'
-
-    def test_input(self):
-        with mk.patch.object(np, 'asanyarray', autospec=True) as mkNp:
-            entry = input_io.InputEntry('name', 1)
-            assert mkNp.call_args_list == [mk.call(1, dtype=float)]
-            mkNp.reset_mock()
-
-            # Test get
-            assert entry.input == mkNp.return_value
-            assert entry._input == mkNp.return_value
-
-            # Test set
-            entry.input = 2
-            assert mkNp.call_args_list == [mk.call(2, dtype=float)]
-            assert entry.input == mkNp.return_value
-            assert entry._input == mkNp.return_value
-
-    def test_shape(self):
-        entry = input_io.InputEntry('name', 1)
-        assert entry.shape == tuple()
-
-        entry = input_io.InputEntry('name', [1, 2])
-        assert entry.shape == (2,)
-
-        entry = input_io.InputEntry('name', np.ones((2, 2)))
-        assert entry.shape == (2, 2)
-
-        entry = input_io.InputEntry('name', np.ones((2, 2, 2)))
-        assert entry.shape == (2, 2, 2)
-
-    def test_input_array(self):
-        # Cast scalar to array
-        entry = input_io.InputEntry('name', 1)
-        assert entry.input_array.shape == np.array([1], dtype=float).shape
-        assert entry.input_array.shape != entry.input.shape
-        assert entry.input_array == entry.input
-
-        # Leave array alone
-        entry = input_io.InputEntry('name', [1, 2])
-        assert entry.input_array.shape == np.array([1, 2], dtype=float).shape
-        assert entry.input_array.shape == entry.input.shape
-        assert (entry.input_array == entry.input).all()
-
-    def test__array_shape(self):
-        entry = input_io.InputEntry('name', 1)
-        assert entry._array_shape(True) == (1,)
-        assert entry._array_shape(False) == tuple()
-
-        entry = input_io.InputEntry('name', [1, 2])
-        assert entry._array_shape(True) == (2,)
-        assert entry._array_shape(False) == (2,)
-
-    def test_check_input_shape(self):
-        entry = input_io.InputEntry('name', 1)
-        array_shape = mk.MagicMock()
-
-        # Passes
-        shapes = [tuple(), (1,), (4,), (2,)]
-        with mk.patch.object(input_io.InputEntry, '_array_shape', autospec=True,
-                             side_effect=shapes) as mkShape:
-            # Shape is false
-            assert entry.check_input_shape(2, 0, array_shape) == shapes[0]
-            assert mkShape.call_args_list == [mk.call(entry, array_shape)]
-            mkShape.reset_mock()
-
-            # Non-empty correct shape, n_models <= 1, model_set_axis not False
-            assert entry.check_input_shape(1, 0, array_shape) == shapes[1]
-            assert mkShape.call_args_list == [mk.call(entry, array_shape)]
-            mkShape.reset_mock()
-
-            # Non-empty correct shape, n_models > 1, model_set_axis is False
-            assert entry.check_input_shape(5, False, array_shape) == shapes[2]
-            assert mkShape.call_args_list == [mk.call(entry, array_shape)]
-            mkShape.reset_mock()
-
-            # Non-empty correct shape, n_models > 1, model_set_axis not False
-            assert entry.check_input_shape(2, 0, array_shape) == shapes[3]
-            assert mkShape.call_args_list == [mk.call(entry, array_shape)]
-
-        # Fails
-        shapes = [(2,), (1,)]
-        with mk.patch.object(input_io.InputEntry, '_array_shape', autospec=True,
-                             side_effect=shapes) as mkShape:
-            # len(shape) < model_set_axis + 1
-            with pytest.raises(ValueError, match=r"For model_set_axis=.*"):
-                entry.check_input_shape(2, 1, array_shape)
-            assert mkShape.call_args_list == [mk.call(entry, array_shape)]
-            mkShape.reset_mock()
-
-            # shape[model_set_axis] != n_models
-            with pytest.raises(ValueError, match=r"Input argument .*"):
-                entry.check_input_shape(2, 0, array_shape)
-            assert mkShape.call_args_list == [mk.call(entry, array_shape)]
-
-    def test__get_param_broadcast(self):
-        entry = input_io.InputEntry('name', 1)
-        param = mk.MagicMock()
-
-        effects = [mk.MagicMock(), input_io.IncompatibleShapeError(1, 2, 3, 4)]
-        with mk.patch.object(input_io, 'check_broadcast', autospec=True,
-                             side_effect=effects) as mkCheck:
-            with mk.patch.object(input_io.InputEntry, 'shape',
-                                 new_callable=mk.PropertyMock) as mkShape:
-                # Standard broadcast success
-                assert entry._get_param_broadcast(param, True) == effects[0]
-                assert mkCheck.call_args_list == [mk.call(mkShape.return_value, param.shape)]
-                assert mkShape.call_args_list == [mk.call()]
-                mkCheck.reset_mock()
-                mkShape.reset_mock()
-
-                # Standard broadcast fail
-                with pytest.raises(ValueError):
-                    entry._get_param_broadcast(param, True)
-                assert mkCheck.call_args_list == [mk.call(mkShape.return_value, param.shape)]
-                assert mkShape.call_args_list == [mk.call(), mk.call()]
-                mkCheck.reset_mock()
-                mkShape.reset_mock()
-
-                # No standard broadcast
-                assert entry._get_param_broadcast(param, False) == mkShape.return_value
-                assert mkCheck.call_args_list == []
-                assert mkShape.call_args_list == [mk.call()]
-
-    def test__update_param_broadcast(self):
-        entry = input_io.InputEntry('name', 1)
-        broadcast = (2,)
-        param = mk.MagicMock()
-        standard_broadcasting = mk.MagicMock()
-
-        effects = [tuple(), (1,), (3,), (3, 4)]
-        with mk.patch.object(input_io.InputEntry, '_get_param_broadcast',
-                             autospec=True, side_effect=effects) as mkGet:
-            # broadcast longer than new
-            assert entry._update_param_broadcast(broadcast, param, standard_broadcasting) == (2,)
-            assert mkGet.call_args_list == [mk.call(entry, param, standard_broadcasting)]
-            mkGet.reset_mock()
-
-            # broadcast has same length as new, but larger
-            assert entry._update_param_broadcast(broadcast, param, standard_broadcasting) == (2,)
-            assert mkGet.call_args_list == [mk.call(entry, param, standard_broadcasting)]
-            mkGet.reset_mock()
-
-            # broadcast has same length as new, but smaller
-            assert entry._update_param_broadcast(broadcast, param, standard_broadcasting) == (3,)
-            assert mkGet.call_args_list == [mk.call(entry, param, standard_broadcasting)]
-            mkGet.reset_mock()
-
-            # broadcast shorter than new
-            assert entry._update_param_broadcast(broadcast, param, standard_broadcasting) == (3, 4)
-            assert mkGet.call_args_list == [mk.call(entry, param, standard_broadcasting)]
-
-    def test_broadcast(self):
-        entry = input_io.InputEntry('name', 1)
-        params = [mk.MagicMock() for _ in range(3)]
-        standard_broadcasting = mk.MagicMock()
-
-        effects = [mk.MagicMock() for _ in range(3)]
-        with mk.patch.object(input_io.InputEntry, '_update_param_broadcast',
-                             autospec=True, side_effect=effects) as mkUpdate:
-            with mk.patch.object(input_io.InputEntry, 'shape',
-                                 new_callable=mk.PropertyMock) as mkShape:
-                # Has params
-                assert entry.broadcast(params, standard_broadcasting) == effects[2]
-                assert mkUpdate.call_args_list == \
-                    [mk.call(entry, (),         params[0], standard_broadcasting),
-                     mk.call(entry, effects[0], params[1], standard_broadcasting),
-                     mk.call(entry, effects[1], params[2], standard_broadcasting)]
-                assert mkShape.call_args_list == []
-                mkUpdate.reset_mock()
-
-                # Has no params
-                assert entry.broadcast([], standard_broadcasting) == mkShape.return_value
-                assert mkUpdate.call_args_list == []
-                assert mkShape.call_args_list == [mk.call()]
-
-
-class TestInputs:
-    def test___init__(self):
-        inputs = input_io.Inputs({'test': input_io.InputEntry('test', 1)}, {'option': 2}, [3])
-        assert inputs._inputs == {'test': input_io.InputEntry('test', 1)}
-        assert inputs._kwargs == {'option': 2}
-        assert inputs._format_info == [3]
-
-    def test_n_inputs(self):
-        inputs = input_io.Inputs({'test': input_io.InputEntry('test', 1)}, {'option': 2}, [3])
-        assert inputs.n_inputs == 1
-
-        inputs = input_io.Inputs({'test': input_io.InputEntry('test', 1),
-                                  'next': input_io.InputEntry('next', 2)}, {'option': 2}, [3])
-        assert inputs.n_inputs == 2
-
-    def test__check_input_shape(self):
-        inputs = input_io.Inputs({}, {}, [])
-        entries = {f"x{idx}": mk.MagicMock() for idx in range(3)}
-        inputs._inputs = entries
-
-        check_args = [entry.check_input_shape.return_value for entry in entries.values()]
-
-        n_models = mk.MagicMock()
-        model_set_axis = mk.MagicMock()
-        array_shape = mk.MagicMock()
-
-        effects = [mk.MagicMock(), None]
-        with mk.patch.object(input_io, 'check_broadcast', autospec=True,
-                             side_effect=effects) as mkCheck:
-            # Success
-            assert inputs._check_input_shape(n_models, model_set_axis, array_shape) == effects[0]
-            for entry in entries.values():
-                assert entry.check_input_shape.call_args_list == \
-                    [mk.call(n_models, model_set_axis, array_shape)]
-                entry.check_input_shape.reset_mock()
-            assert mkCheck.call_args_list == [mk.call(*check_args)]
-            mkCheck.reset_mock()
-
-            # Fail
-            with pytest.raises(ValueError):
-                inputs._check_input_shape(n_models, model_set_axis, array_shape)
-            for entry in entries.values():
-                assert entry.check_input_shape.call_args_list == \
-                    [mk.call(n_models, model_set_axis, array_shape)]
-                entry.check_input_shape.reset_mock()
-            assert mkCheck.call_args_list == [mk.call(*check_args)]
-            mkCheck.reset_mock()
+        true_eval = input_io.Inputs(true_inputs, true_optional, [])
+        assert inputs.evaluation_inputs(0, 1, 2, z0=0) == true_eval
