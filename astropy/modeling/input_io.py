@@ -131,10 +131,11 @@ class InputEntry(object):
 
 
 class Inputs(object):
-    def __init__(self, inputs: Dict[str, InputEntry], optional: dict, format_info: list):
+    def __init__(self, inputs: Dict[str, InputEntry], optional: dict, model_options: dict, format_info: list):
         self._inputs = inputs
         self._optional = optional
 
+        self._model_options = model_options
         self._format_info = format_info
 
     def __eq__(self, this):
@@ -156,6 +157,10 @@ class Inputs(object):
     @property
     def optional(self) -> dict:
         return self._optional
+
+    @property
+    def model_options(self) -> dict:
+        return self._model_options
 
     @property
     def format_info(self) -> list:
@@ -204,7 +209,7 @@ class Inputs(object):
         for name, _input in self._inputs.items():
             inputs[name] = _input.reduce_to_bounding_box(valid_index, array_shape)
 
-        return Inputs(inputs, self.optional, self.format_info)
+        return Inputs(inputs, self.optional, self.model_options, self.format_info)
 
 
 class IoMetaDataEntry(object):
@@ -423,17 +428,7 @@ class InputMetaData(object):
     def get_optional_data(self, name: str) -> OptionalMetaDataEntry:
         return self._optional[name]
 
-    def _fill_optional(self, **kwargs) -> dict:
-        for name, optional_input in self._optional.items():
-            if name not in kwargs:
-                kwargs[name] = optional_input.default
-        for name, value in modeling_options.items():
-            if name not in kwargs:
-                kwargs[name] = value
-
-        return kwargs
-
-    def _input_kwargs(self, **kwargs) -> Tuple[dict, dict]:
+    def _get_inputs_from_kwargs(self, **kwargs) -> Tuple[dict, dict]:
         input_kwargs = {}
 
         for name in self._inputs:
@@ -441,11 +436,16 @@ class InputMetaData(object):
                 input_kwargs[name] = kwargs[name]
                 del kwargs[name]
 
-        optional = self._fill_optional(**kwargs)
+        return input_kwargs, kwargs
 
-        return input_kwargs, optional
+    def _check_inputs(self, *args, **kwargs):
+        n_args = len(args) + len(kwargs)
+        if self._n_inputs < n_args:
+            raise RuntimeError(f'Too many input arguments - expected {self._n_inputs}, got {n_args}')
+        elif self._n_inputs > n_args:
+            raise RuntimeError(f'Too few input arguments - expected {self._n_inputs}, got {n_args}')
 
-    def _get_inputs(self, *args, **kwargs) -> Dict[str, InputEntry]:
+    def _create_inputs(self, *args, **kwargs) -> Dict[str, InputEntry]:
         args = list(args)
         inputs = {}
         for name in self._inputs:
@@ -456,27 +456,56 @@ class InputMetaData(object):
 
         return inputs
 
-    def _check_inputs(self, *args, **kwargs):
-        n_args = len(args) + len(kwargs)
-        if self._n_inputs < n_args:
-            raise RuntimeError(f'Too many input arguments - expected {self._n_inputs}, got {n_args}')
-        elif self._n_inputs > n_args:
-            raise RuntimeError(f'Too few input arguments - expected {self._n_inputs}, got {n_args}')
+    def _get_inputs(self, *args, **kwargs) -> Tuple[Dict[str, InputEntry], dict]:
+        input_kwargs, kwargs = self._get_inputs_from_kwargs(**kwargs)
+        self._check_inputs(*args, **input_kwargs)
 
-    def _check_optional(self, **kwargs):
-        if not self._pass_optional:
-            for name in kwargs:
-                if not ((name in self._optional) or (name in modeling_options)):
-                    raise RuntimeError(f'Keyword: {name} has been passed, no undocumented arguments can be passed through!')
+        return self._create_inputs(*args, **input_kwargs), kwargs
+
+    def _fill_optional(self, **kwargs) -> Tuple[dict, dict]:
+        optional = {}
+        for name, optional_input in self._optional.items():
+            if name in kwargs:
+                value = kwargs[name]
+                del kwargs[name]
+            else:
+                value = optional_input.default
+
+            optional[name] = value
+
+        return optional, kwargs
+
+    def _fill_model_options(self, optional: dict, **kwargs) -> Tuple[dict, dict, dict]:
+        model_options = {}
+        options = optional.copy()
+        for name, default in modeling_options.items():
+            if name in optional:
+                value = optional[name]
+                del options[name]
+            elif name in kwargs:
+                value = kwargs[name]
+                del kwargs[name]
+            else:
+                value = default
+
+            model_options[name] = value
+
+        return options, model_options, kwargs
+
+    def _get_options(self, **kwargs) -> Tuple[dict, dict, dict]:
+        optional, kwargs = self._fill_optional(**kwargs)
+        optional, modeling_options, kwargs = self._fill_model_options(optional, **kwargs)
+
+        if (not self._pass_optional) and (len(kwargs) > 0):
+            raise RuntimeError(f'Unknown optional arguments: {kwargs.keys()} have been passed, argument pass through is off.')
+
+        return optional, modeling_options, kwargs
 
     def evaluation_inputs(self, *args, **kwargs) -> Inputs:
-        input_kwargs, optional = self._input_kwargs(**kwargs)
-        self._check_optional(**optional)
+        inputs, kwargs = self._get_inputs(*args, **kwargs)
+        optional, modeling_options, kwargs = self._get_options(**kwargs)
 
-        self._check_inputs(*args, **input_kwargs)
-        inputs = self._get_inputs(*args, **input_kwargs)
-
-        return Inputs(inputs, optional, [])
+        return Inputs(inputs, optional, modeling_options, [])
 
     def _get_outside(self, inputs: Inputs, name: str, array_shape: bool) -> Tuple[np.ndarray, tuple]:
         if name in inputs.inputs:

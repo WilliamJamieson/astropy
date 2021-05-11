@@ -229,21 +229,21 @@ class TestInputEntry:
 
 class TestInputs:
     def test___init__(self):
-        inputs = input_io.Inputs({'test': input_io.InputEntry('test', 1)}, {'option': 2}, [3])
+        inputs = input_io.Inputs({'test': input_io.InputEntry('test', 1)}, {'option': 2}, {}, [3])
         assert inputs._inputs == {'test': input_io.InputEntry('test', 1)}
         assert inputs._optional == {'option': 2}
         assert inputs._format_info == [3]
 
     def test_n_inputs(self):
-        inputs = input_io.Inputs({'test': input_io.InputEntry('test', 1)}, {'option': 2}, [3])
+        inputs = input_io.Inputs({'test': input_io.InputEntry('test', 1)}, {'option': 2}, {}, [3])
         assert inputs.n_inputs == 1
 
         inputs = input_io.Inputs({'test': input_io.InputEntry('test', 1),
-                                  'next': input_io.InputEntry('next', 2)}, {'option': 2}, [3])
+                                  'next': input_io.InputEntry('next', 2)}, {'option': 2}, {}, [3])
         assert inputs.n_inputs == 2
 
     def test__check_input_shape(self):
-        inputs = input_io.Inputs({}, {}, [])
+        inputs = input_io.Inputs({}, {}, {}, [])
         entries = {f"x{idx}": mk.MagicMock() for idx in range(3)}
         inputs._inputs = entries
 
@@ -276,7 +276,7 @@ class TestInputs:
 
     def test_reduce_to_bounding_box(self):
         entries = {f'x{idx}': mk.MagicMock() for idx in range(3)}
-        inputs = input_io.Inputs(entries, mk.MagicMock(), mk.MagicMock())
+        inputs = input_io.Inputs(entries, mk.MagicMock(), mk.MagicMock(), mk.MagicMock())
 
         valid_index = mk.MagicMock()
         array_shape = mk.MagicMock()
@@ -838,148 +838,47 @@ class TestInputMetaData:
         assert inputs.get_optional_data('z1') == optional['z1']
         assert inputs.get_optional_data('z2') == optional['z2']
 
-    def test__fill_optional(self):
-        optional = {'z0': input_io.OptionalMetaDataEntry('z0', mk.MagicMock()),
-                    'z1': input_io.OptionalMetaDataEntry('z1', mk.MagicMock()),
-                    'z2': input_io.OptionalMetaDataEntry('z2', mk.MagicMock())}
-        inputs = input_io.InputMetaData.create_defaults(1, optional=optional)
-
-        # No user passed, global and model optional disjoint
-        kwargs = inputs._fill_optional()
-        for name, value in kwargs.items():
-            if name in optional:
-                assert value == optional[name].default
-            elif name in input_io.modeling_options:
-                if isinstance(value, float) and np.isnan(value):
-                    assert name == 'fill_value'
-                else:
-                    assert value == input_io.modeling_options[name]
-            else:
-                assert False
-        for name, data in optional.items():
-            assert name in kwargs
-            assert kwargs[name] == data.default
-        for name, value in input_io.modeling_options.items():
-            assert name in kwargs
-            if isinstance(value, float) and np.isnan(value):
-                assert name == 'fill_value'
-            else:
-                assert kwargs[name] == value
-        assert len(kwargs) == len(optional) + len(input_io.modeling_options)
-
-        # User passed, global and model optional disjoint
-        input_kwargs = {'z0': mk.MagicMock(), 'fill_value': 0}
-        kwargs = inputs._fill_optional(**input_kwargs)
-        assert kwargs != input_kwargs
-        for name, value in kwargs.items():
-            if name in input_kwargs:
-                assert value == input_kwargs[name]
-            elif name in optional:
-                assert value == optional[name].default
-            elif name in input_io.modeling_options:
-                if isinstance(value, float) and np.isnan(value):
-                    assert name == 'fill_value'
-                else:
-                    assert value == input_io.modeling_options[name]
-            else:
-                assert False
-        for name, data in optional.items():
-            assert name in kwargs
-            if name in input_kwargs:
-                assert kwargs[name] == input_kwargs[name]
-            else:
-                assert kwargs[name] == data.default
-        for name, value in input_io.modeling_options.items():
-            assert name in kwargs
-            if name in input_kwargs:
-                assert kwargs[name] == input_kwargs[name]
-            else:
-                assert kwargs[name] == value
-        assert len(kwargs) == len(optional) + len(input_io.modeling_options)
-
-        optional = {'z0': input_io.OptionalMetaDataEntry('z0', mk.MagicMock()),
-                    'z1': input_io.OptionalMetaDataEntry('z1', mk.MagicMock()),
-                    'z2': input_io.OptionalMetaDataEntry('z2', mk.MagicMock()),
-                    'fill_value': input_io.OptionalMetaDataEntry('fill_value', mk.MagicMock()),
-                    'with_bounding_box': input_io.OptionalMetaDataEntry('with_bounding_box', mk.MagicMock())}
-        inputs = input_io.InputMetaData.create_defaults(1, optional=optional)
-
-        # No user passed, global and model optional not disjoint
-        kwargs = inputs._fill_optional()
-        for name, value in kwargs.items():
-            if name in optional:
-                assert value == optional[name].default
-            elif name in input_io.modeling_options:
-                assert value == input_io.modeling_options[name]
-            else:
-                assert False
-        for name, data in optional.items():
-            assert name in kwargs
-            assert kwargs[name] == data.default
-        for name, value in input_io.modeling_options.items():
-            assert name in kwargs
-            if name in optional:
-                assert kwargs[name] == optional[name].default
-            else:
-                assert kwargs[name] == value
-        assert len(kwargs) == len(optional) + len(input_io.modeling_options) - 2
-
-        # User passed, global and model optional not disjoint
-        input_kwargs = {'z0': mk.MagicMock(), 'fill_value': 0, 'model_set_axis': 2}
-        kwargs = inputs._fill_optional(**input_kwargs)
-        assert kwargs != input_kwargs
-        for name, value in kwargs.items():
-            if name in input_kwargs:
-                assert value == input_kwargs[name]
-            elif name in optional:
-                assert value == optional[name].default
-            elif name in input_io.modeling_options:
-                assert value == input_io.modeling_options[name]
-            else:
-                assert False
-        for name, data in optional.items():
-            assert name in kwargs
-            if name in input_kwargs:
-                assert kwargs[name] == input_kwargs[name]
-            else:
-                assert kwargs[name] == data.default
-        for name, value in input_io.modeling_options.items():
-            assert name in kwargs
-            if name in input_kwargs:
-                assert kwargs[name] == input_kwargs[name]
-            elif name in optional:
-                assert kwargs[name] == optional[name].default
-            else:
-                assert kwargs[name] == value
-        assert len(kwargs) == len(optional) + len(input_io.modeling_options) - 2
-
-    def test__input_kwargs(self):
+    def test__get_inputs_from_kwargs(self):
         inputs = input_io.InputMetaData.create_defaults(3)
 
-        with mk.patch.object(input_io.InputMetaData, '_fill_optional',
-                             autospec=True) as mkFill:
-            kwargs = {'x0': 1, 'x2': 2, 'test': 3}
-            input_kwargs, optional = inputs._input_kwargs(**kwargs)
+        kwargs = {}
+        # No kwargs
+        input_kwargs, new_kwargs = inputs._get_inputs_from_kwargs()
+        assert input_kwargs == {}
+        assert new_kwargs == {}
+        input_kwargs, new_kwargs = inputs._get_inputs_from_kwargs(**kwargs)
+        assert input_kwargs == {}
+        assert new_kwargs == {}
 
-            assert optional != kwargs
-            assert input_kwargs == {'x0': 1, 'x2': 2}
-            assert optional == mkFill.return_value
+        true_input_kwargs = {}
+        # Only inputs in kwargs
+        for index in range(3):
+            key = f'x{index}'
+            kwargs[key] = mk.MagicMock()
+            true_input_kwargs[key] = kwargs[key]
 
-            assert mkFill.call_args_list == [mk.call(inputs, test=3)]
+            input_kwargs, new_kwargs = inputs._get_inputs_from_kwargs(**kwargs)
+            assert input_kwargs == true_input_kwargs
+            assert new_kwargs == {}
+            assert len(kwargs) == index + 1
 
-    def test__get_inputs(self):
-        inputs = input_io.InputMetaData.create_defaults(3)
-        true_inputs = {f'x{idx}': input_io.InputEntry(f'x{idx}', idx)
-                       for idx in range(3)}
+        # Inputs and other stuff in kwargs
+        true_kwargs = {}
+        for index in range(3):
+            key = f'a{index}'
+            kwargs[key] = mk.MagicMock()
+            true_kwargs[key] = kwargs[key]
 
-        assert true_inputs == inputs._get_inputs(0, 1, 2)
-        assert true_inputs == inputs._get_inputs(0, 1, x2=2)
-        assert true_inputs == inputs._get_inputs(0, 2, x1=1)
-        assert true_inputs == inputs._get_inputs(1, 2, x0=0)
-        assert true_inputs == inputs._get_inputs(0, x1=1, x2=2)
-        assert true_inputs == inputs._get_inputs(1, x0=0, x2=2)
-        assert true_inputs == inputs._get_inputs(2, x0=0, x1=1)
-        assert true_inputs == inputs._get_inputs(x0=0, x1=1, x2=2)
+            input_kwargs, new_kwargs = inputs._get_inputs_from_kwargs(**kwargs)
+            assert input_kwargs == true_input_kwargs
+            assert new_kwargs == true_kwargs
+            assert len(kwargs) == index + 4
+
+        # Only other stuff in kwargs
+        kwargs = true_kwargs.copy()
+        input_kwargs, new_kwargs = inputs._get_inputs_from_kwargs(**kwargs)
+        assert input_kwargs == {}
+        assert new_kwargs == true_kwargs
 
     def test__check_inputs(self):
         inputs = input_io.InputMetaData.create_defaults(3)
@@ -1009,29 +908,164 @@ class TestInputMetaData:
         with pytest.raises(RuntimeError, match=r"Too few .*"):
             inputs._check_inputs(b=1, a=2)
 
-    def test__check_optional(self):
-        optional = {'z0': input_io.OptionalMetaDataEntry('z0'),
-                    'z1': input_io.OptionalMetaDataEntry('z1'),
-                    'z2': input_io.OptionalMetaDataEntry('z2')}
+    def test__create_inputs(self):
+        inputs = input_io.InputMetaData.create_defaults(3)
+        true_inputs = {f'x{idx}': input_io.InputEntry(f'x{idx}', idx)
+                       for idx in range(3)}
+
+        assert true_inputs == inputs._create_inputs(0, 1, 2)
+        assert true_inputs == inputs._create_inputs(0, 1, x2=2)
+        assert true_inputs == inputs._create_inputs(0, 2, x1=1)
+        assert true_inputs == inputs._create_inputs(1, 2, x0=0)
+        assert true_inputs == inputs._create_inputs(0, x1=1, x2=2)
+        assert true_inputs == inputs._create_inputs(1, x0=0, x2=2)
+        assert true_inputs == inputs._create_inputs(2, x0=0, x1=1)
+        assert true_inputs == inputs._create_inputs(x0=0, x1=1, x2=2)
+
+    def test__get_inputs(self):
+        inputs = input_io.InputMetaData.create_defaults(3)
+        args = (mk.MagicMock(), mk.MagicMock())
+        kwargs = {f'test{idx}': mk.MagicMock() for idx in range(3)}
+
+        input_kwargs = {f'x{idx}': mk.MagicMock() for idx in range(3)}
+        new_kwargs = {f'new_test{idx}': mk.MagicMock() for idx in range(3)}
+        get_return = (input_kwargs, new_kwargs)
+        create_return = mk.MagicMock()
+        with mk.patch.object(input_io.InputMetaData, '_get_inputs_from_kwargs',
+                             autospec=True, return_value=get_return) as mkGet:
+            with mk.patch.object(input_io.InputMetaData, '_check_inputs',
+                                 autospec=True) as mkCheck:
+                with mk.patch.object(input_io.InputMetaData, '_create_inputs',
+                                     autospec=True, return_value=create_return) as mkCreate:
+                    main = mk.MagicMock()
+                    main.attach_mock(mkGet, 'get')
+                    main.attach_mock(mkCheck, 'check')
+                    main.attach_mock(mkCreate, 'create')
+
+                    model_inputs, model_kwargs = inputs._get_inputs(*args, **kwargs)
+                    assert model_inputs == create_return
+                    assert model_kwargs == new_kwargs
+                    assert main.mock_calls == [mk.call.get(inputs, **kwargs),
+                                               mk.call.check(inputs, *args, **input_kwargs),
+                                               mk.call.create(inputs, *args, **input_kwargs)]
+
+    def test__fill_optional(self):
+        optional = {'z0': input_io.OptionalMetaDataEntry('z0', mk.MagicMock()),
+                    'z1': input_io.OptionalMetaDataEntry('z1', mk.MagicMock()),
+                    'z2': input_io.OptionalMetaDataEntry('z2', mk.MagicMock())}
         inputs = input_io.InputMetaData.create_defaults(1, optional=optional)
-        assert not inputs._pass_optional
 
-        # Passes when not pass_through
-        inputs._check_optional()
-        kwargs = input_io.modeling_options.copy()
-        inputs._check_optional(**kwargs)
-        for name in optional:
-            kwargs[name] = mk.MagicMock()
-            inputs._check_optional(**kwargs)
+        input_kwargs = {}
+        # No options passed
+        true_options = {entry.name: entry.default for entry in optional.values()}
 
-        # Fail when not pass_through
-        kwargs['test'] = mk.MagicMock()
-        with pytest.raises(RuntimeError):
-            inputs._check_optional(**kwargs)
+        options, new_kwargs = inputs._fill_optional()
+        assert new_kwargs == {}
+        assert options == true_options
+        options, new_kwargs = inputs._fill_optional(**input_kwargs)
+        assert new_kwargs == {}
+        assert options == true_options
 
-        # No fail when pass optional enabled
-        inputs._pass_optional = True
-        inputs._check_optional(**kwargs)
+        # Only known options passed
+        for index, key in enumerate(optional):
+            input_kwargs[key] = mk.MagicMock()
+            true_options[key] = input_kwargs[key]
+
+            options, new_kwargs = inputs._fill_optional(**input_kwargs)
+            assert new_kwargs == {}
+            assert options == true_options
+            assert len(input_kwargs) == index + 1
+
+        unknown_input_kwargs = {}
+        # Known and unknown options are passed
+        for index in range(3):
+            key = f'a{index}'
+            unknown_input_kwargs[key] = mk.MagicMock()
+            input_kwargs[key] = unknown_input_kwargs[key]
+
+            options, new_kwargs = inputs._fill_optional(**input_kwargs)
+            assert new_kwargs == unknown_input_kwargs
+            assert options == true_options
+            assert len(input_kwargs) == index + 4
+
+        # Only unknown kwargs are passed
+        true_options = {entry.name: entry.default for entry in optional.values()}
+        options, new_kwargs = inputs._fill_optional(**unknown_input_kwargs)
+        assert new_kwargs == unknown_input_kwargs
+        assert options == true_options
+
+    def test__fill_model_options(self):
+        inputs = input_io.InputMetaData.create_defaults(1)
+
+        # No optionals and no kwargs
+        input_kwargs = {}
+        optional = {}
+
+        options, model_options, new_kwargs = inputs._fill_model_options(optional)
+        assert options == {}
+        assert model_options == input_io.modeling_options
+        assert new_kwargs == {}
+        options, model_options, new_kwargs = inputs._fill_model_options(optional, **input_kwargs)
+        assert options == {}
+        assert model_options == input_io.modeling_options
+        assert new_kwargs == {}
+
+        # Optional with no model options and no kwargs
+        for index in range(3):
+            key = f'z{index}'
+            optional[key] = mk.MagicMock()
+
+            options, model_options, new_kwargs = inputs._fill_model_options(optional)
+            assert options == optional
+            assert model_options == input_io.modeling_options
+            assert new_kwargs == {}
+            options, model_options, new_kwargs = inputs._fill_model_options(optional, **input_kwargs)
+            assert options == optional
+            assert model_options == input_io.modeling_options
+            assert new_kwargs == {}
+
+        true_options = optional.copy()
+        true_model_options = input_io.modeling_options.copy()
+        # Optional with model options and no kwargs
+        for index, key in enumerate(input_io.modeling_options):
+            optional[key] = mk.MagicMock()
+            true_model_options[key] = optional[key]
+
+            options, model_options, new_kwargs = inputs._fill_model_options(optional)
+            assert options == true_options
+            assert model_options == true_model_options
+            assert new_kwargs == {}
+            assert len(optional) == index + 4
+            options, model_options, new_kwargs = inputs._fill_model_options(optional, **input_kwargs)
+            assert options == true_options
+            assert model_options == true_model_options
+            assert new_kwargs == {}
+            assert len(optional) == index + 4
+
+        # Optional with model options and disjoint kwargs
+        for index in range(3):
+            key = f'a{index}'
+            input_kwargs[key] = mk.MagicMock
+
+            options, model_options, new_kwargs = inputs._fill_model_options(optional, **input_kwargs)
+            assert options == true_options
+            assert model_options == true_model_options
+            assert new_kwargs == input_kwargs
+            assert len(optional) == 3 + len(input_io.modeling_options)
+
+        optional = true_options.copy()
+        true_kwargs = input_kwargs.copy()
+        true_model_options = input_io.modeling_options.copy()
+        # Optional and model options in kwargs
+        for index, key in enumerate(input_io.modeling_options):
+            input_kwargs[key] = mk.MagicMock()
+            true_model_options[key] = input_kwargs[key]
+
+            options, model_options, new_kwargs = inputs._fill_model_options(optional, **input_kwargs)
+            assert options == true_options
+            assert model_options == true_model_options
+            assert new_kwargs == true_kwargs
+            assert len(optional) == 3
 
     def test_evaluation_inputs(self):
         optional = {'z0': input_io.OptionalMetaDataEntry('z0', 'z0'),
@@ -1041,11 +1075,9 @@ class TestInputMetaData:
         true_inputs = {f'x{idx}': input_io.InputEntry(f'x{idx}', idx)
                        for idx in range(3)}
 
-        # No optional
-        true_optional = input_io.modeling_options.copy()
-        true_eval = input_io.Inputs(true_inputs, true_optional, [])
-        for name, value in optional.items():
-            true_optional[name] = value.default
+        # Only main inputs
+        true_optional = {name: value.default for name, value in optional.items()}
+        true_eval = input_io.Inputs(true_inputs, true_optional, input_io.modeling_options.copy(), [])
         assert inputs.evaluation_inputs(0, 1, 2)          == true_eval
         assert inputs.evaluation_inputs(0, 1, x2=2)       == true_eval
         assert inputs.evaluation_inputs(0, 2, x1=1)       == true_eval
@@ -1055,14 +1087,22 @@ class TestInputMetaData:
         assert inputs.evaluation_inputs(2, x0=0, x1=1)    == true_eval
         assert inputs.evaluation_inputs(x0=0, x1=1, x2=2) == true_eval
 
-        # Optional
+        # Set a model option
+        model_options = input_io.modeling_options.copy()
+        true_eval = input_io.Inputs(true_inputs, true_optional, model_options, [])
+        model_options['fill_value'] = 4
+        assert inputs.evaluation_inputs(0, 1, 2, fill_value=4) == true_eval
+        assert true_eval.model_options['fill_value'] == 4
+
+        # Set an optional input
+        assert true_eval.optional['z0'] != 0
         true_optional['z0'] = 0
-        true_eval = input_io.Inputs(true_inputs, true_optional, [])
         assert inputs.evaluation_inputs(0, 1, 2, z0=0) == true_eval
+        assert true_eval.optional['z0'] == 0
 
     def test__get_outside(self):
         entries = {f'x{idx}': mk.MagicMock() for idx in range(3)}
-        inputs = input_io.Inputs(entries, mk.MagicMock(), mk.MagicMock())
+        inputs = input_io.Inputs(entries, mk.MagicMock(), mk.MagicMock(), mk.MagicMock())
         input_data = input_io.InputMetaData(3)
         inputs_data = {f'x{idx}': mk.MagicMock() for idx in range(3)}
         input_data._inputs = inputs_data
