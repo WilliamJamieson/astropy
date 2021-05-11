@@ -119,6 +119,16 @@ class InputEntry(object):
 
         return broadcast
 
+    def reduce_to_bounding_box(self, valid_index, array_shape: bool) -> 'InputEntry':
+        if array_shape:
+            input_value = self.input_array
+        else:
+            input_value = self.input
+
+        input_value = np.array(input_value)[valid_index]
+
+        return InputEntry(self._name, input_value)
+
 
 class Inputs(object):
     def __init__(self, inputs: Dict[str, InputEntry], optional: dict, format_info: list):
@@ -188,6 +198,13 @@ class Inputs(object):
         # TODO: add units handling
 
         self._format_info = self._broadcast(params, standard_broadcasting, n_outputs)
+
+    def reduce_to_bounding_box(self, valid_index, array_shape: bool) -> 'Inputs':
+        inputs = {}
+        for name, _input in self._inputs.items():
+            inputs[name] = _input.reduce_to_bounding_box(valid_index, array_shape)
+
+        return Inputs(inputs, self.optional, self.format_info)
 
 
 class IoMetaDataEntry(object):
@@ -461,12 +478,50 @@ class InputMetaData(object):
 
         return Inputs(inputs, optional, [])
 
-    def bounding_box_inputs(self, inputs: Inputs, n_models: int, model_set_axis: int, array_shape: bool):
-        input_shape = inputs._check_input_shape(n_models, model_set_axis, array_shape)
-        outside_inputs = np.zeros(input_shape, dtype=bool)
-        for name, metadata in self._inputs.items():
-            if name in inputs:
-                value = inputs.inputs[name]
-                outside = metadata.outside(value)
+    def _get_outside(self, inputs: Inputs, name: str, array_shape: bool) -> Tuple[np.ndarray, tuple]:
+        if name in inputs.inputs:
+            value = inputs.inputs[name]
+            if array_shape:
+                value = value.input_array
             else:
-                raise RuntimeError(f'Input: {name} not present in inputs')
+                value = value.input
+
+            return self._inputs[name].outside(value), value.shape
+        else:
+            raise RuntimeError(f'Input: {name} not present in inputs')
+
+    def _update_outside_inputs(self, outside_inputs: np.ndarray, all_out: bool,
+                               inputs: Inputs, name: str, array_shape: bool) ->  Tuple[np.ndarray, bool]:
+        outside, shape = self._get_outside(inputs, name, array_shape)
+
+        outside_inputs |= outside
+
+        if not shape and outside_inputs.all():
+            all_out = True
+
+        return outside_inputs, all_out
+
+    def _outside_inputs(self, inputs: Inputs, n_models: int, model_set_axis: int, array_shape: bool) -> Tuple[np.ndarray, bool]:
+        input_shape = inputs.check_input_shape(n_models, model_set_axis, array_shape)
+
+        outside_inputs = np.zeros(input_shape, dtype=bool)
+        all_out = False
+        for name in self._inputs:
+            outside_inputs, all_out = self._update_outside_inputs(outside_inputs, all_out,
+                                                                  inputs, name, array_shape)
+
+        return outside_inputs, all_out
+
+    def bounding_box_inputs(self, inputs: Inputs, n_models: int, model_set_axis: int, array_shape: bool):
+        outside_inputs, all_out = self._outside_inputs(inputs, n_models, model_set_axis, array_shape)
+
+        # get an array with indices of valid inputs
+        valid_index = np.atleast_1d(np.logical_not(outside_inputs)).nonzero()
+        if len(valid_index[0]) == 0:
+            all_out = True
+
+        # if not all inputs are not in bounding box, adjust them
+        if not all_out:
+            return inputs.reduce_to_bounding_box(valid_index, array_shape), valid_index, all_out
+        else:
+            return inputs, valid_index, all_out
