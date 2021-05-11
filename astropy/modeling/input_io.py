@@ -151,7 +151,7 @@ class Inputs(object):
     def format_info(self) -> list:
         return self._format_info
 
-    def _check_input_shape(self, n_models: int, model_set_axis: int, array_shape: bool):
+    def check_input_shape(self, n_models: int, model_set_axis: int, array_shape: bool):
         # NOTE: this method is for replacing _validate_input_shapes
         input_shape = check_broadcast(*[_input.check_input_shape(n_models, model_set_axis, array_shape)
                                         for _input in self._inputs.values()])
@@ -184,7 +184,7 @@ class Inputs(object):
                         standard_broadcasting: bool, n_outputs: int):
         # Note: this method is for replacing ~Model.prepare_inputs
 
-        self._check_input_shape(n_models, model_set_axis, False)
+        self.check_input_shape(n_models, model_set_axis, False)
         # TODO: add units handling
 
         self._format_info = self._broadcast(params, standard_broadcasting, n_outputs)
@@ -237,7 +237,7 @@ class InputMetaDataEntry(IoMetaDataEntry):
     @property
     def bounding_box(self) -> _BoundingBox:
         if self._bounding_box is None:
-            raise NotImplementedError('No bounding_box has been assigned to input {self._name}')
+            raise NotImplementedError(f'No bounding_box has been assigned to input {self._name}')
         else:
             return self._bounding_box
 
@@ -460,3 +460,13 @@ class InputMetaData(object):
         inputs = self._get_inputs(*args, **input_kwargs)
 
         return Inputs(inputs, optional, [])
+
+    def bounding_box_inputs(self, inputs: Inputs, n_models: int, model_set_axis: int, array_shape: bool):
+        input_shape = inputs._check_input_shape(n_models, model_set_axis, array_shape)
+        outside_inputs = np.zeros(input_shape, dtype=bool)
+        for name, metadata in self._inputs.items():
+            if name in inputs:
+                value = inputs.inputs[name]
+                outside = metadata.outside(value)
+            else:
+                raise RuntimeError(f'Input: {name} not present in inputs')

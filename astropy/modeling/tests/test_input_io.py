@@ -242,7 +242,7 @@ class TestInputs:
         with mk.patch.object(input_io, 'check_broadcast', autospec=True,
                              side_effect=effects) as mkCheck:
             # Success
-            assert inputs._check_input_shape(n_models, model_set_axis, array_shape) == effects[0]
+            assert inputs.check_input_shape(n_models, model_set_axis, array_shape) == effects[0]
             for entry in entries.values():
                 assert entry.check_input_shape.call_args_list == \
                     [mk.call(n_models, model_set_axis, array_shape)]
@@ -252,13 +252,12 @@ class TestInputs:
 
             # Fail
             with pytest.raises(ValueError):
-                inputs._check_input_shape(n_models, model_set_axis, array_shape)
+                inputs.check_input_shape(n_models, model_set_axis, array_shape)
             for entry in entries.values():
                 assert entry.check_input_shape.call_args_list == \
                     [mk.call(n_models, model_set_axis, array_shape)]
                 entry.check_input_shape.reset_mock()
             assert mkCheck.call_args_list == [mk.call(*check_args)]
-            mkCheck.reset_mock()
 
 
 class TestIoMetaDataEntry:
