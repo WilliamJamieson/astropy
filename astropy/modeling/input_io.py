@@ -131,18 +131,28 @@ class InputEntry(object):
 
 
 class Inputs(object):
-    def __init__(self, inputs: Dict[str, InputEntry], optional: dict, model_options: dict, format_info: list):
+    def __init__(self, inputs: Dict[str, InputEntry], optional: dict,
+                 model_options: dict=modeling_options, pass_through: dict={},
+                 format_info: list=None, valid_index: np.ndarray=None, all_out: bool=None):
         self._inputs = inputs
         self._optional = optional
 
-        self._model_options = model_options
+        self.model_options = model_options
+        self._pass_through = pass_through
+
         self._format_info = format_info
+        self._valid_index = valid_index
+        self._all_out = all_out
 
     def __eq__(self, this):
         if isinstance(this, Inputs):
             return (self.inputs == this.inputs) and \
                 (self.optional == this.optional) and \
-                (self.format_info == this.format_info)
+                (self.model_options == this.model_options) and \
+                (self.format_info == this.format_info) and \
+                (self.pass_through == this.pass_through) and \
+                (self.valid_index == this.valid_index).all() and \
+                (self.all_out == this.all_out)
         else:
             return False
 
@@ -162,13 +172,76 @@ class Inputs(object):
     def model_options(self) -> dict:
         return self._model_options
 
+    @model_options.setter
+    def model_options(self, value: dict):
+        for name in modeling_options:
+            if name not in value:
+                raise ValueError(f"Modeling option {name} must be set!")
+        else:
+            self._model_options = value
+
+    def _get_model_option(self, name: str):
+        if name in self._model_options:
+            return self._model_options[name]
+        else:
+            raise RuntimeError(f'Option "{name}" must be set!')
+
+    @property
+    def model_set_axis(self):
+        return self._get_model_option('model_set_axis')
+
+    @property
+    def with_bounding_box(self):
+        return self._get_model_option('with_bounding_box')
+
+    @property
+    def fill_value(self):
+        return self._get_model_option('fill_value')
+
+    @property
+    def equivalencies(self):
+        return self._get_model_option('equivalencies')
+
+    @property
+    def inputs_map(self):
+        return self._get_model_option('inputs_map')
+
+    @property
+    def pass_through(self) -> dict:
+        return self._pass_through
+
     @property
     def format_info(self) -> list:
-        return self._format_info
+        if self._format_info is None:
+            return []
+        else:
+            return self._format_info
 
-    def check_input_shape(self, n_models: int, model_set_axis: int, array_shape: bool):
+    @property
+    def valid_index(self) -> np.ndarray:
+        if self._valid_index is None:
+            return np.empty(0)
+        else:
+            return self._valid_index
+
+    @valid_index.setter
+    def valid_index(self, value):
+        self._valid_index = value
+
+    @property
+    def all_out(self) -> bool:
+        if self._all_out is None:
+            return False
+        else:
+            return self._all_out
+
+    @all_out.setter
+    def all_out(self, value):
+        self._all_out = value
+
+    def check_input_shape(self, n_models: int, array_shape: bool):
         # NOTE: this method is for replacing _validate_input_shapes
-        input_shape = check_broadcast(*[_input.check_input_shape(n_models, model_set_axis, array_shape)
+        input_shape = check_broadcast(*[_input.check_input_shape(n_models, self.model_set_axis, array_shape)
                                         for _input in self._inputs.values()])
         if input_shape is None:
             raise ValueError("All inputs must have identical shapes or must be scalars.")
@@ -195,21 +268,22 @@ class Inputs(object):
 
         return broadcasts
 
-    def get_format_info(self, n_models: int, model_set_axis: int, params: list,
+    def get_format_info(self, n_models: int, params: list,
                         standard_broadcasting: bool, n_outputs: int):
         # Note: this method is for replacing ~Model.prepare_inputs
 
-        self.check_input_shape(n_models, model_set_axis, False)
+        self.check_input_shape(n_models, False)
         # TODO: add units handling
 
         self._format_info = self._broadcast(params, standard_broadcasting, n_outputs)
 
-    def reduce_to_bounding_box(self, valid_index, array_shape: bool) -> 'Inputs':
+    def reduce_to_bounding_box(self, valid_index, all_out: bool, array_shape: bool) -> 'Inputs':
         inputs = {}
         for name, _input in self._inputs.items():
             inputs[name] = _input.reduce_to_bounding_box(valid_index, array_shape)
 
-        return Inputs(inputs, self.optional, self.model_options, self.format_info)
+        return Inputs(inputs, self.optional, self.model_options, self.pass_through,
+                      self.format_info, valid_index, all_out)
 
 
 class IoMetaDataEntry(object):
@@ -505,7 +579,7 @@ class InputMetaData(object):
         inputs, kwargs = self._get_inputs(*args, **kwargs)
         optional, modeling_options, kwargs = self._get_options(**kwargs)
 
-        return Inputs(inputs, optional, modeling_options, [])
+        return Inputs(inputs, optional, modeling_options, kwargs)
 
     def _get_outside(self, inputs: Inputs, name: str, array_shape: bool) -> Tuple[np.ndarray, tuple]:
         if name in inputs.inputs:
@@ -530,8 +604,8 @@ class InputMetaData(object):
 
         return outside_inputs, all_out
 
-    def _outside_inputs(self, inputs: Inputs, n_models: int, model_set_axis: int, array_shape: bool) -> Tuple[np.ndarray, bool]:
-        input_shape = inputs.check_input_shape(n_models, model_set_axis, array_shape)
+    def _outside_inputs(self, inputs: Inputs, n_models: int, array_shape: bool) -> Tuple[np.ndarray, bool]:
+        input_shape = inputs.check_input_shape(n_models, array_shape)
 
         outside_inputs = np.zeros(input_shape, dtype=bool)
         all_out = False
@@ -541,8 +615,8 @@ class InputMetaData(object):
 
         return outside_inputs, all_out
 
-    def bounding_box_inputs(self, inputs: Inputs, n_models: int, model_set_axis: int, array_shape: bool):
-        outside_inputs, all_out = self._outside_inputs(inputs, n_models, model_set_axis, array_shape)
+    def bounding_box_inputs(self, inputs: Inputs, n_models: int, array_shape: bool):
+        outside_inputs, all_out = self._outside_inputs(inputs, n_models, array_shape)
 
         # get an array with indices of valid inputs
         valid_index = np.atleast_1d(np.logical_not(outside_inputs)).nonzero()
@@ -551,6 +625,8 @@ class InputMetaData(object):
 
         # if not all inputs are not in bounding box, adjust them
         if not all_out:
-            return inputs.reduce_to_bounding_box(valid_index, array_shape), valid_index, all_out
+            return inputs.reduce_to_bounding_box(valid_index, all_out, array_shape)
         else:
-            return inputs, valid_index, all_out
+            inputs.valid_index = valid_index
+            inputs.all_out = all_out
+            return inputs

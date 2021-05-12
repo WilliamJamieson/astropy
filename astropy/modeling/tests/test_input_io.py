@@ -229,61 +229,278 @@ class TestInputEntry:
 
 class TestInputs:
     def test___init__(self):
-        inputs = input_io.Inputs({'test': input_io.InputEntry('test', 1)}, {'option': 2}, {}, [3])
+        # Defaults
+        inputs = input_io.Inputs({'test': input_io.InputEntry('test', 1)},
+                                 {'option': 2})
         assert inputs._inputs == {'test': input_io.InputEntry('test', 1)}
         assert inputs._optional == {'option': 2}
+        assert inputs._model_options == input_io.modeling_options
+        assert inputs._pass_through == {}
+        assert inputs._format_info is None
+        assert inputs._valid_index is None
+        assert inputs._all_out is None
+
+        # Optionals
+        modeling_options = {name: mk.MagicMock() for name in input_io.modeling_options}
+        inputs = input_io.Inputs({'test': input_io.InputEntry('test', 1)},
+                                 {'option': 2}, modeling_options,
+                                 {'pass': 1}, [3], np.array([7]), True)
+        assert inputs._inputs == {'test': input_io.InputEntry('test', 1)}
+        assert inputs._optional == {'option': 2}
+        assert inputs._model_options == modeling_options
+        assert inputs._pass_through == {'pass': 1}
         assert inputs._format_info == [3]
+        assert inputs._valid_index == np.array([7])
+        assert inputs._all_out
+
+        # Error
+        with pytest.raises(ValueError):
+            input_io.Inputs(mk.MagicMock(), mk.MagicMock(), mk.MagicMock())
+
+    def test___eq__(self):
+        inputs1 = input_io.Inputs({'test': input_io.InputEntry('test', 1)},
+                                  {'option': 2}, input_io.modeling_options,
+                                  {'pass': 1}, [3], np.array([7]), True)
+        inputs2 = input_io.Inputs({'test': input_io.InputEntry('test', 1)},
+                                  {'option': 2}, input_io.modeling_options,
+                                  {'pass': 1}, [3], np.array([7]), True)
+
+        # Equal
+        assert inputs1 == inputs2
+
+        # Not matching all_out
+        inputs2._all_out = mk.MagicMock()
+        assert not (inputs1 == inputs2)
+
+        # Not matching valid_index
+        inputs2._all_out = inputs1._all_out
+        inputs2._valid_index = np.ndarray([4])
+        assert not (inputs1 == inputs2)
+
+        # Not matching format_info
+        inputs2._valid_index = inputs1._valid_index
+        inputs2._format_info = mk.MagicMock()
+        assert not (inputs1 == inputs2)
+
+        # Not matching pass_through
+        inputs2._format_info = inputs1._format_info
+        inputs2._pass_through = mk.MagicMock()
+        assert not (inputs1 == inputs2)
+
+        # Not matching model_options
+        inputs2._pass_through = inputs1._pass_through
+        inputs2._model_options = mk.MagicMock()
+        assert not (inputs1 == inputs2)
+
+        # Not matching optional
+        inputs2._model_options = inputs1._model_options
+        inputs2._optional = mk.MagicMock()
+        assert not (inputs1 == inputs2)
+
+        # Not matching inputs
+        inputs2._optional = inputs1._optional
+        inputs2._inputs = mk.MagicMock()
+        assert not (inputs1 == inputs2)
 
     def test_n_inputs(self):
-        inputs = input_io.Inputs({'test': input_io.InputEntry('test', 1)}, {'option': 2}, {}, [3])
+        inputs = input_io.Inputs({'test': input_io.InputEntry('test', 1)}, {'option': 2})
         assert inputs.n_inputs == 1
 
         inputs = input_io.Inputs({'test': input_io.InputEntry('test', 1),
-                                  'next': input_io.InputEntry('next', 2)}, {'option': 2}, {}, [3])
+                                  'next': input_io.InputEntry('next', 2)}, {'option': 2})
         assert inputs.n_inputs == 2
 
+    def test_inputs(self):
+        inputs = input_io.Inputs({'test': input_io.InputEntry('test', 1)},
+                                 {'option': 2})
+        assert inputs._inputs == {'test': input_io.InputEntry('test', 1)}
+        assert inputs.inputs == {'test': input_io.InputEntry('test', 1)}
+
+    def test_optional(self):
+        inputs = input_io.Inputs({'test': input_io.InputEntry('test', 1)},
+                                 {'option': 2})
+        assert inputs._optional == {'option': 2}
+        assert inputs.optional == {'option': 2}
+
+    def test_model_options(self):
+        inputs = input_io.Inputs({'test': input_io.InputEntry('test', 1)},
+                                 {'option': 2})
+
+        # Test get
+        assert inputs._model_options == input_io.modeling_options
+        assert inputs.model_options == input_io.modeling_options
+
+        # Test set and get successfully
+        modeling_options = {name: mk.MagicMock() for name in input_io.modeling_options}
+        inputs.model_options = modeling_options
+        assert inputs._model_options == modeling_options
+        assert inputs.model_options == modeling_options
+
+        # Test set fail
+        for name in input_io.modeling_options:
+            new_model_options = modeling_options.copy()
+            del new_model_options[name]
+            with pytest.raises(ValueError, match=f"Modeling option {name} must be set!"):
+                inputs.model_options = new_model_options
+
+    def test__get_model_option(self):
+        inputs = input_io.Inputs({'test': input_io.InputEntry('test', 1)},
+                                 {'option': 2})
+        model_options = mk.MagicMock()
+        model_options.__contains__.side_effect = [True, False]
+        inputs._model_options = model_options
+
+        # Test success
+        assert inputs._get_model_option('test') == model_options.__getitem__.return_value
+        assert model_options.__getitem__.call_args_list == [mk.call('test')]
+        assert model_options.__contains__.call_args_list == [mk.call('test')]
+        model_options.reset_mock()
+
+        with pytest.raises(RuntimeError, match=r"Option .*"):
+            inputs._get_model_option('test')
+        assert model_options.__getitem__.call_args_list == []
+        assert model_options.__contains__.call_args_list == [mk.call('test')]
+
+    def test_model_set_axis(self):
+        inputs = input_io.Inputs({'test': input_io.InputEntry('test', 1)},
+                                 {'option': 2})
+        with mk.patch.object(input_io.Inputs, '_get_model_option',
+                             autospec=True) as mkGet:
+            assert inputs.model_set_axis == mkGet.return_value
+            assert mkGet.call_args_list == [mk.call(inputs, 'model_set_axis')]
+
+    def test_with_bounding_box(self):
+        inputs = input_io.Inputs({'test': input_io.InputEntry('test', 1)},
+                                 {'option': 2})
+        with mk.patch.object(input_io.Inputs, '_get_model_option',
+                             autospec=True) as mkGet:
+            assert inputs.with_bounding_box == mkGet.return_value
+            assert mkGet.call_args_list == [mk.call(inputs, 'with_bounding_box')]
+
+    def test_fill_value(self):
+        inputs = input_io.Inputs({'test': input_io.InputEntry('test', 1)},
+                                 {'option': 2})
+        with mk.patch.object(input_io.Inputs, '_get_model_option',
+                             autospec=True) as mkGet:
+            assert inputs.fill_value == mkGet.return_value
+            assert mkGet.call_args_list == [mk.call(inputs, 'fill_value')]
+
+    def test_equivalencies(self):
+        inputs = input_io.Inputs({'test': input_io.InputEntry('test', 1)},
+                                 {'option': 2})
+        with mk.patch.object(input_io.Inputs, '_get_model_option',
+                             autospec=True) as mkGet:
+            assert inputs.equivalencies == mkGet.return_value
+            assert mkGet.call_args_list == [mk.call(inputs, 'equivalencies')]
+
+    def test_inputs_map(self):
+        inputs = input_io.Inputs({'test': input_io.InputEntry('test', 1)},
+                                 {'option': 2})
+        with mk.patch.object(input_io.Inputs, '_get_model_option',
+                             autospec=True) as mkGet:
+            assert inputs.inputs_map == mkGet.return_value
+            assert mkGet.call_args_list == [mk.call(inputs, 'inputs_map')]
+
+    def test_pass_through(self):
+        inputs = input_io.Inputs({'test': input_io.InputEntry('test', 1)},
+                                 {'option': 2})
+        assert inputs._pass_through == {}
+        assert inputs.pass_through == {}
+
+        inputs = input_io.Inputs({'test': input_io.InputEntry('test', 1)},
+                                 {'option': 2}, pass_through={'pass': 7})
+        assert inputs._pass_through == {'pass': 7}
+        assert inputs.pass_through == {'pass': 7}
+
+    def test_format_info(self):
+        inputs = input_io.Inputs({'test': input_io.InputEntry('test', 1)},
+                                 {'option': 2})
+        # None value
+        assert inputs._format_info is None
+        assert inputs.format_info == []
+
+        # Not None
+        inputs._format_info = [3, 4]
+        assert inputs.format_info == [3, 4]
+
+    def test_valid_index(self):
+        inputs = input_io.Inputs({'test': input_io.InputEntry('test', 1)},
+                                 {'option': 2})
+
+        # Test get if None
+        assert inputs._valid_index is None
+        assert (inputs.valid_index == np.array([])).all()
+
+        # Test set and get
+        inputs.valid_index = np.array([1, 2, 3])
+        assert (inputs._valid_index == np.array([1, 2, 3])).all()
+        assert (inputs.valid_index == np.array([1, 2, 3])).all()
+
+    def test_all_out(self):
+        inputs = input_io.Inputs({'test': input_io.InputEntry('test', 1)},
+                                 {'option': 2})
+        # None value
+        assert inputs._all_out is None
+        assert not inputs.all_out
+
+        # Test set and get
+        inputs.all_out = True
+        assert inputs.all_out
+        inputs.all_out = False
+        assert not inputs.all_out
+
+
     def test__check_input_shape(self):
-        inputs = input_io.Inputs({}, {}, {}, [])
+        inputs = input_io.Inputs({}, {})
         entries = {f"x{idx}": mk.MagicMock() for idx in range(3)}
         inputs._inputs = entries
 
         check_args = [entry.check_input_shape.return_value for entry in entries.values()]
 
         n_models = mk.MagicMock()
-        model_set_axis = mk.MagicMock()
         array_shape = mk.MagicMock()
 
         effects = [mk.MagicMock(), None]
         with mk.patch.object(input_io, 'check_broadcast', autospec=True,
                              side_effect=effects) as mkCheck:
-            # Success
-            assert inputs.check_input_shape(n_models, model_set_axis, array_shape) == effects[0]
-            for entry in entries.values():
-                assert entry.check_input_shape.call_args_list == \
-                    [mk.call(n_models, model_set_axis, array_shape)]
-                entry.check_input_shape.reset_mock()
-            assert mkCheck.call_args_list == [mk.call(*check_args)]
-            mkCheck.reset_mock()
+            with mk.patch.object(input_io.Inputs, 'model_set_axis',
+                                 new_callable=mk.PropertyMock) as mkAxis:
+                # Success
+                assert inputs.check_input_shape(n_models, array_shape) == effects[0]
+                for index, entry in enumerate(entries.values()):
+                    assert entry.check_input_shape.call_args_list == \
+                        [mk.call(n_models, mkAxis.return_value, array_shape)]
+                    entry.check_input_shape.reset_mock()
+                    assert mkAxis.call_args_list[index] == [mk.call()]
+                assert len(mkAxis.call_args_list) == len(entries)
+                assert mkCheck.call_args_list == [mk.call(*check_args)]
+                mkCheck.reset_mock()
+                mkAxis.reset_mock()
 
-            # Fail
-            with pytest.raises(ValueError):
-                inputs.check_input_shape(n_models, model_set_axis, array_shape)
-            for entry in entries.values():
-                assert entry.check_input_shape.call_args_list == \
-                    [mk.call(n_models, model_set_axis, array_shape)]
-                entry.check_input_shape.reset_mock()
-            assert mkCheck.call_args_list == [mk.call(*check_args)]
+                # Fail
+                with pytest.raises(ValueError):
+                    inputs.check_input_shape(n_models, array_shape)
+                for index, entry in enumerate(entries.values()):
+                    assert entry.check_input_shape.call_args_list == \
+                        [mk.call(n_models, mkAxis.return_value, array_shape)]
+                    entry.check_input_shape.reset_mock()
+                    assert mkAxis.call_args_list[index] == [mk.call()]
+                assert len(mkAxis.call_args_list) == len(entries)
+                assert mkCheck.call_args_list == [mk.call(*check_args)]
 
     def test_reduce_to_bounding_box(self):
         entries = {f'x{idx}': mk.MagicMock() for idx in range(3)}
-        inputs = input_io.Inputs(entries, mk.MagicMock(), mk.MagicMock(), mk.MagicMock())
+        inputs = input_io.Inputs(entries, mk.MagicMock())
 
         valid_index = mk.MagicMock()
+        all_out = mk.MagicMock()
         array_shape = mk.MagicMock()
-        reduced = inputs.reduce_to_bounding_box(valid_index, array_shape)
+        reduced = inputs.reduce_to_bounding_box(valid_index, all_out, array_shape)
         assert isinstance(reduced, input_io.Inputs)
         assert reduced.optional == inputs.optional
         assert reduced.format_info == inputs.format_info
+        assert reduced.valid_index == valid_index
+        assert reduced.all_out == all_out
         assert len(reduced.inputs) == len(entries) == 3
         for name, entry in entries.items():
             assert name in reduced.inputs
@@ -1077,7 +1294,7 @@ class TestInputMetaData:
 
         # Only main inputs
         true_optional = {name: value.default for name, value in optional.items()}
-        true_eval = input_io.Inputs(true_inputs, true_optional, input_io.modeling_options.copy(), [])
+        true_eval = input_io.Inputs(true_inputs, true_optional, input_io.modeling_options.copy(), {}, [])
         assert inputs.evaluation_inputs(0, 1, 2)          == true_eval
         assert inputs.evaluation_inputs(0, 1, x2=2)       == true_eval
         assert inputs.evaluation_inputs(0, 2, x1=1)       == true_eval
@@ -1089,12 +1306,13 @@ class TestInputMetaData:
 
         # Set a model option
         model_options = input_io.modeling_options.copy()
-        true_eval = input_io.Inputs(true_inputs, true_optional, model_options, [])
+        true_eval = input_io.Inputs(true_inputs, true_optional, model_options, {}, [])
         model_options['fill_value'] = 4
         assert inputs.evaluation_inputs(0, 1, 2, fill_value=4) == true_eval
         assert true_eval.model_options['fill_value'] == 4
 
         # Set an optional input
+        true_eval = input_io.Inputs(true_inputs, true_optional, input_io.modeling_options.copy(), {}, [])
         assert true_eval.optional['z0'] != 0
         true_optional['z0'] = 0
         assert inputs.evaluation_inputs(0, 1, 2, z0=0) == true_eval
@@ -1102,7 +1320,7 @@ class TestInputMetaData:
 
     def test__get_outside(self):
         entries = {f'x{idx}': mk.MagicMock() for idx in range(3)}
-        inputs = input_io.Inputs(entries, mk.MagicMock(), mk.MagicMock(), mk.MagicMock())
+        inputs = input_io.Inputs(entries, mk.MagicMock())
         input_data = input_io.InputMetaData(3)
         inputs_data = {f'x{idx}': mk.MagicMock() for idx in range(3)}
         input_data._inputs = inputs_data
