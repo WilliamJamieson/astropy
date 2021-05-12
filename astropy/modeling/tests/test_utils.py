@@ -111,8 +111,8 @@ def test__BoundingBox_outside():
     assert bbox.outside(2)
     assert bbox.outside(-2)
 
-    assert (bbox.outside(np.array([-3, -2, -1, 0, 1, 2, 3])) == \
-        [True, True, False, False, False, True, True]).all()
+    assert (bbox.outside(np.array([-3, -2, -1, 0, 1, 2, 3])) ==
+            [True, True, False, False, False, True, True]).all()
 
 
 def test__SpecialOperatorsDict__set_value():

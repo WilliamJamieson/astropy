@@ -449,6 +449,12 @@ class TestInputs:
         inputs.all_out = False
         assert not inputs.all_out
 
+    def test_copy(self):
+        inputs = input_io.Inputs({'test': input_io.InputEntry('test', 1)},
+                                 {'option': 2})
+        with mk.patch.object(input_io, 'deepcopy', autospec=True) as mkDeepcopy:
+            assert inputs.copy() == mkDeepcopy.return_value
+            assert mkDeepcopy.call_args_list == [mk.call(inputs)]
 
     def test__check_input_shape(self):
         inputs = input_io.Inputs({}, {})
@@ -488,14 +494,14 @@ class TestInputs:
                 assert len(mkAxis.call_args_list) == len(entries)
                 assert mkCheck.call_args_list == [mk.call(*check_args)]
 
-    def test_reduce_to_bounding_box(self):
+    def test__reduce_to_bounding_box(self):
         entries = {f'x{idx}': mk.MagicMock() for idx in range(3)}
         inputs = input_io.Inputs(entries, mk.MagicMock())
 
         valid_index = mk.MagicMock()
         all_out = mk.MagicMock()
         array_shape = mk.MagicMock()
-        reduced = inputs.reduce_to_bounding_box(valid_index, all_out, array_shape)
+        reduced = inputs._reduce_to_bounding_box(valid_index, all_out, array_shape)
         assert isinstance(reduced, input_io.Inputs)
         assert reduced.optional == inputs.optional
         assert reduced.format_info == inputs.format_info
@@ -512,6 +518,35 @@ class TestInputs:
             assert entries[name].reduce_to_bounding_box.return_value == entry
             assert entries[name].reduce_to_bounding_box.call_args_list == \
                 [mk.call(valid_index, array_shape)]
+
+    def test_reduce_to_bounding_box(self):
+        entries = {f'x{idx}': mk.MagicMock() for idx in range(3)}
+        inputs = input_io.Inputs(entries, mk.MagicMock())
+        assert inputs._valid_index is None
+        assert inputs._all_out is None
+
+        valid_index = mk.MagicMock()
+        array_shape = mk.MagicMock()
+
+        with mk.patch.object(input_io.Inputs, '_reduce_to_bounding_box',
+                             autospec=True) as mkReduce:
+            # Test all out
+            reduced = inputs.reduce_to_bounding_box(valid_index, True, array_shape)
+            assert inputs._valid_index is None
+            assert reduced._valid_index == valid_index
+            assert inputs._all_out is None
+            assert reduced._all_out == True
+            assert inputs._inputs == reduced._inputs
+            assert inputs._optional == reduced._optional
+            assert inputs._model_options == reduced._model_options
+            assert inputs._pass_through == reduced._pass_through
+            assert inputs._format_info == reduced._format_info
+            assert mkReduce.call_args_list == []
+
+            # Test actually reduce
+            assert inputs.reduce_to_bounding_box(valid_index, False, array_shape) == \
+                mkReduce.return_value
+            assert mkReduce.call_args_list == [mk.call(inputs, valid_index, False, array_shape)]
 
 
 class TestIoMetaDataEntry:
@@ -731,6 +766,7 @@ class TestInputMetaData:
         assert inputs._n_inputs == 1
         assert inputs._inputs == {}
         assert inputs._optional == {}
+        assert inputs._n_models == 1
         assert not inputs._pass_optional
 
         with mk.patch.object(input_io.InputMetaData, 'inputs',
@@ -739,9 +775,10 @@ class TestInputMetaData:
                                  new_callable=mk.PropertyMock) as mkOptional:
                 mk_inputs = mk.MagicMock()
                 mk_optional = mk.MagicMock()
-                inputs = input_io.InputMetaData(1, mk_inputs, mk_optional, True)
+                inputs = input_io.InputMetaData(1, mk_inputs, mk_optional, 4, True)
 
                 assert inputs._n_inputs == 1
+                assert inputs._n_models == 4
                 assert inputs._pass_optional
 
                 assert mkInputs.call_args_list == [mk.call(mk_inputs)]
@@ -1396,3 +1433,85 @@ class TestInputMetaData:
 
     def test__outside_inputs(self):
         input_data = input_io.InputMetaData.create_defaults(3)
+        input_data.n_models = mk.MagicMock()
+
+        inputs = mk.MagicMock()
+        array_shape = mk.MagicMock()
+
+        update_effects = [(mk.MagicMock(), mk.MagicMock()) for _ in range(3)]
+        with mk.patch.object(input_io.InputMetaData, '_update_outside_inputs',
+                             autospec=True, side_effect=update_effects) as mkUpdate:
+            with mk.patch.object(np, 'zeros', autospec=True) as mkZeros:
+                outside_inputs, all_out = input_data._outside_inputs(inputs, array_shape)
+                assert outside_inputs == update_effects[2][0]
+                assert all_out == update_effects[2][1]
+
+                assert mkUpdate.call_args_list == \
+                    [
+                        mk.call(input_data, mkZeros.return_value, False,
+                                inputs, 'x0', array_shape),
+                        mk.call(input_data, update_effects[0][0], update_effects[0][1],
+                                inputs, 'x1', array_shape),
+                        mk.call(input_data, update_effects[1][0], update_effects[1][1],
+                                inputs, 'x2', array_shape),
+                    ]
+                assert mkZeros.call_args_list == \
+                    [mk.call(inputs.check_input_shape.return_value, dtype=bool)]
+                assert inputs.check_input_shape.call_args_list == \
+                    [mk.call(input_data.n_models, array_shape)]
+
+    def test__get_valid_index(self):
+        input_data = input_io.InputMetaData.create_defaults(3)
+
+        inputs = mk.MagicMock()
+        array_shape = mk.MagicMock()
+
+        valid_index_options = [
+            [[mk.MagicMock(), mk.MagicMock()], mk.MagicMock()],
+            [[], mk.MagicMock()]
+        ]
+
+        outside_return = (mk.MagicMock(), mk.MagicMock())
+        atleast_return = mk.MagicMock()
+        atleast_return.nonzero.side_effect = valid_index_options
+        with mk.patch.object(input_io.InputMetaData, '_outside_inputs',
+                             autospec=True, return_value=outside_return) as mkOutside:
+            with mk.patch.object(np, 'logical_not', autospec=True) as mkNot:
+                with mk.patch.object(np, 'atleast_1d', autospec=True,
+                                     return_value=atleast_return) as mkAtleast:
+                    # Do not update all_out
+                    valid_index, all_out = input_data._get_valid_index(inputs, array_shape)
+                    assert valid_index == valid_index_options[0]
+                    assert all_out == outside_return[1]
+                    assert atleast_return.nonzero.call_args_list == [mk.call()]
+                    assert mkAtleast.call_args_list == [mk.call(mkNot.return_value)]
+                    assert mkNot.call_args_list == [mk.call(outside_return[0])]
+                    assert mkOutside.call_args_list == [mk.call(input_data, inputs, array_shape)]
+                    atleast_return.reset_mock()
+                    mkAtleast.reset_mock()
+                    mkNot.reset_mock()
+                    mkOutside.reset_mock()
+
+                    # Do update all_out
+                    valid_index, all_out = input_data._get_valid_index(inputs, array_shape)
+                    assert valid_index == valid_index_options[1]
+                    assert all_out == True
+                    assert atleast_return.nonzero.call_args_list == [mk.call()]
+                    assert mkAtleast.call_args_list == [mk.call(mkNot.return_value)]
+                    assert mkNot.call_args_list == [mk.call(outside_return[0])]
+                    assert mkOutside.call_args_list == [mk.call(input_data, inputs, array_shape)]
+
+    def test_bounding_box_inputs(self):
+        input_data = input_io.InputMetaData.create_defaults(3)
+
+        inputs = mk.MagicMock()
+        array_shape = mk.MagicMock()
+
+        get_return = (mk.MagicMock(), mk.MagicMock())
+        with mk.patch.object(input_io.InputMetaData, '_get_valid_index',
+                             autospec=True, return_value=get_return) as mkGet:
+            assert input_data.bounding_box_inputs(inputs, array_shape) == \
+                inputs.reduce_to_bounding_box.return_value
+            assert inputs.reduce_to_bounding_box.call_args_list == \
+                [mk.call(get_return[0], get_return[1], array_shape)]
+            assert mkGet.call_args_list == [mk.call(input_data, inputs, array_shape)]

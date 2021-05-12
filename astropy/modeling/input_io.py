@@ -4,6 +4,7 @@
 
 import numpy as np
 from typing import Dict, List, Tuple
+from copy import deepcopy
 
 from astropy.utils.shapes import check_broadcast, IncompatibleShapeError
 from astropy.modeling.utils import _BoundingBox
@@ -239,6 +240,9 @@ class Inputs(object):
     def all_out(self, value):
         self._all_out = value
 
+    def copy(self) -> 'Inputs':
+        return deepcopy(self)
+
     def check_input_shape(self, n_models: int, array_shape: bool):
         # NOTE: this method is for replacing _validate_input_shapes
         input_shape = check_broadcast(*[_input.check_input_shape(n_models, self.model_set_axis, array_shape)
@@ -277,13 +281,23 @@ class Inputs(object):
 
         self._format_info = self._broadcast(params, standard_broadcasting, n_outputs)
 
-    def reduce_to_bounding_box(self, valid_index, all_out: bool, array_shape: bool) -> 'Inputs':
+    def _reduce_to_bounding_box(self, valid_index, all_out: bool, array_shape: bool) -> 'Inputs':
         inputs = {}
         for name, _input in self._inputs.items():
             inputs[name] = _input.reduce_to_bounding_box(valid_index, array_shape)
 
         return Inputs(inputs, self.optional, self.model_options, self.pass_through,
                       self.format_info, valid_index, all_out)
+
+    def reduce_to_bounding_box(self, valid_index, all_out: bool, array_shape: bool) -> 'Inputs':
+        # if not all inputs are not in bounding box, adjust them
+        if all_out:
+            new = self.copy()
+            new.valid_index = valid_index
+            new.all_out = all_out
+            return new
+        else:
+            return self._reduce_to_bounding_box(valid_index, all_out, array_shape)
 
 
 class IoMetaDataEntry(object):
@@ -385,8 +399,10 @@ class InputMetaData(object):
     def __init__(self, n_inputs: int,
                  inputs: Dict[str, InputMetaDataEntry]=None,
                  optional: Dict[str, OptionalMetaDataEntry]=None,
+                 n_models: int=1,
                  pass_optional: bool=False):
         self._n_inputs = n_inputs
+        self._n_models = n_models
         self._pass_optional = pass_optional
 
         self._inputs: Dict[str, InputMetaDataEntry] = {}
@@ -420,6 +436,14 @@ class InputMetaData(object):
     def n_inputs(self, value):
         self._n_inputs = value
         self._fill_defaults()
+
+    @property
+    def n_models(self) -> int:
+        return self._n_models
+
+    @n_models.setter
+    def n_models(self, value):
+        self._n_models = value
 
     @property
     def pass_optional(self) -> bool:
@@ -604,8 +628,8 @@ class InputMetaData(object):
 
         return outside_inputs, all_out
 
-    def _outside_inputs(self, inputs: Inputs, n_models: int, array_shape: bool) -> Tuple[np.ndarray, bool]:
-        input_shape = inputs.check_input_shape(n_models, array_shape)
+    def _outside_inputs(self, inputs: Inputs, array_shape: bool) -> Tuple[np.ndarray, bool]:
+        input_shape = inputs.check_input_shape(self._n_models, array_shape)
 
         outside_inputs = np.zeros(input_shape, dtype=bool)
         all_out = False
@@ -615,18 +639,17 @@ class InputMetaData(object):
 
         return outside_inputs, all_out
 
-    def bounding_box_inputs(self, inputs: Inputs, n_models: int, array_shape: bool):
-        outside_inputs, all_out = self._outside_inputs(inputs, n_models, array_shape)
+    def _get_valid_index(self, inputs: Inputs, array_shape: bool) -> Tuple[Tuple[np.ndarray, ...], bool]:
+        outside_inputs, all_out = self._outside_inputs(inputs, array_shape)
 
         # get an array with indices of valid inputs
         valid_index = np.atleast_1d(np.logical_not(outside_inputs)).nonzero()
         if len(valid_index[0]) == 0:
             all_out = True
 
-        # if not all inputs are not in bounding box, adjust them
-        if not all_out:
-            return inputs.reduce_to_bounding_box(valid_index, all_out, array_shape)
-        else:
-            inputs.valid_index = valid_index
-            inputs.all_out = all_out
-            return inputs
+        return valid_index, all_out
+
+    def bounding_box_inputs(self, inputs: Inputs, array_shape: bool):
+        valid_index, all_out = self._get_valid_index(inputs, array_shape)
+
+        return inputs.reduce_to_bounding_box(valid_index, all_out, array_shape)
