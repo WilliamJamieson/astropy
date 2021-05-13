@@ -767,7 +767,10 @@ class TestInputMetaData:
         assert inputs._inputs == {}
         assert inputs._optional == {}
         assert inputs._n_models == 1
-        assert not inputs._pass_optional
+        assert inputs._n_outputs == 1
+        assert inputs._standard_broadcasting == True
+        assert inputs._bounding_box is None
+        assert inputs._pass_optional == False
 
         with mk.patch.object(input_io.InputMetaData, 'inputs',
                              new_callable=mk.PropertyMock) as mkInputs:
@@ -775,11 +778,15 @@ class TestInputMetaData:
                                  new_callable=mk.PropertyMock) as mkOptional:
                 mk_inputs = mk.MagicMock()
                 mk_optional = mk.MagicMock()
-                inputs = input_io.InputMetaData(1, mk_inputs, mk_optional, 4, True)
+                inputs = input_io.InputMetaData(1, mk_inputs, mk_optional, 4, 6,
+                                                False, _BoundingBox((-1, 1)), True)
 
                 assert inputs._n_inputs == 1
                 assert inputs._n_models == 4
-                assert inputs._pass_optional
+                assert inputs._n_outputs == 6
+                assert inputs._standard_broadcasting == False
+                assert inputs._bounding_box == (-1, 1)
+                assert inputs._pass_optional == True
 
                 assert mkInputs.call_args_list == [mk.call(mk_inputs)]
                 assert mkOptional.call_args_list == [mk.call(mk_optional)]
@@ -869,17 +876,116 @@ class TestInputMetaData:
             assert mkFill.call_args_list == [mk.call(inputs)]
             assert inputs._inputs == {}
 
+    def test_n_models(self):
+        inputs = input_io.InputMetaData(1)
+
+        # Test get
+        assert inputs.n_models == 1
+        assert inputs._n_models == 1
+
+        # Test set
+        inputs.n_models = 3
+        assert inputs.n_models == 3
+        assert inputs._n_models == 3
+
+    def test_n_outputs(self):
+        inputs = input_io.InputMetaData(1)
+
+        # Test get
+        assert inputs.n_outputs == 1
+        assert inputs._n_outputs == 1
+
+        # Test set
+        inputs.n_outputs = 3
+        assert inputs.n_outputs == 3
+        assert inputs._n_outputs == 3
+
+    def test_standard_broadcasting(self):
+        inputs = input_io.InputMetaData(1)
+
+        # Test get
+        assert inputs.standard_broadcasting == True
+        assert inputs._standard_broadcasting == True
+
+        # Test set
+        inputs.standard_broadcasting = False
+        assert inputs.standard_broadcasting == False
+        assert inputs._standard_broadcasting == False
+
     def test_pass_optional(self):
         inputs = input_io.InputMetaData(1)
 
         # Test get
-        assert not inputs.pass_optional
-        assert not inputs._pass_optional
+        assert inputs.pass_optional == False
+        assert inputs._pass_optional == False
 
         # Test set
         inputs.pass_optional = True
-        assert inputs.pass_optional
-        assert inputs._pass_optional
+        assert inputs.pass_optional == True
+        assert inputs._pass_optional == True
+
+    def test_bounding_box_get(self):
+        inputs = input_io.InputMetaData(1)
+
+        # Test fail to get
+        assert inputs._bounding_box is None
+        with pytest.raises(NotImplementedError):
+            inputs.bounding_box
+
+        # Test get
+        bbox = mk.MagicMock()
+        inputs._bounding_box = bbox
+        assert inputs.bounding_box == bbox
+
+    def test__reverse_bounding_box(self):
+        inputs = input_io.InputMetaData(1)
+
+        # Test when n_inputs == 1
+        assert inputs.n_inputs == 1
+        bbox = mk.MagicMock()
+        inputs._bounding_box = bbox
+        assert inputs._reverse_bounding_box() == [bbox]
+
+        # Test when n_inputs > 1
+        for index in range(2, 4):
+            inputs.reset_inputs()
+            inputs.n_inputs = index
+            assert inputs.n_inputs == index > 1
+            bbox = [mk.MagicMock() for _ in range(index)]
+            inputs._bounding_box = bbox
+            assert inputs._reverse_bounding_box() == bbox[::-1]
+
+    def test__distribute_bounding_box(self):
+        # n_inputs == 1
+        input_data = input_io.InputMetaData.create_defaults(1)
+        bbox = (mk.MagicMock(), mk.MagicMock())
+        input_data._bounding_box = bbox
+        input_data._distribute_bounding_box()
+        assert input_data._inputs['x'].bounding_box == bbox
+
+        # n_inputs > 1
+        for index in range(2, 4):
+            input_data = input_io.InputMetaData.create_defaults(index)
+            bbox = [(mk.MagicMock(), mk.MagicMock()) for _ in range(index)]
+            input_data._bounding_box = bbox
+            input_data._distribute_bounding_box()
+            for _input in input_data._inputs.values():
+                assert _input.bounding_box == bbox[index - 1 - _input.pos]
+
+    def test_bounding_box_set(self):
+        # n_inputs == 1
+        input_data = input_io.InputMetaData.create_defaults(1)
+        bbox = (mk.MagicMock(), mk.MagicMock())
+        input_data.bounding_box = bbox
+        assert input_data._inputs['x'].bounding_box == bbox
+
+        # n_inputs > 1
+        for index in range(2, 4):
+            input_data = input_io.InputMetaData.create_defaults(index)
+            bbox = [(mk.MagicMock(), mk.MagicMock()) for _ in range(index)]
+            input_data.bounding_box = bbox
+            for _input in input_data._inputs.values():
+                assert _input.bounding_box == bbox[index - 1 - _input.pos]
 
     def test_inputs_get(self):
         inputs = input_io.InputMetaData.create_defaults(1)

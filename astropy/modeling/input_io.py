@@ -299,6 +299,13 @@ class Inputs(object):
         else:
             return self._reduce_to_bounding_box(valid_index, all_out, array_shape)
 
+    def prepare_inputs(self, n_models: int, array_shape: bool):
+        # equivalent of _validate_input_shapes
+        self.check_input_shape(n_models, array_shape)
+
+        # TODO: do unit checking?
+        
+
 
 class IoMetaDataEntry(object):
     def __init__(self, name: str=None):
@@ -400,9 +407,14 @@ class InputMetaData(object):
                  inputs: Dict[str, InputMetaDataEntry]=None,
                  optional: Dict[str, OptionalMetaDataEntry]=None,
                  n_models: int=1,
+                 n_outputs: int=1,
+                 standard_broadcasting: bool=True,
+                 bounding_box: _BoundingBox=None,
                  pass_optional: bool=False):
         self._n_inputs = n_inputs
         self._n_models = n_models
+        self._n_outputs = n_outputs
+        self._standard_broadcasting = standard_broadcasting
         self._pass_optional = pass_optional
 
         self._inputs: Dict[str, InputMetaDataEntry] = {}
@@ -412,6 +424,8 @@ class InputMetaData(object):
             self.inputs = inputs
         if optional is not None:
             self.optional = optional
+
+        self.bounding_box = bounding_box
 
     def _fill_defaults(self):
         if self._n_inputs == 1:
@@ -446,12 +460,59 @@ class InputMetaData(object):
         self._n_models = value
 
     @property
+    def n_outputs(self) -> int:
+        return self._n_outputs
+
+    @n_outputs.setter
+    def n_outputs(self, value):
+        self._n_outputs = value
+
+    @property
+    def standard_broadcasting(self) -> bool:
+        return self._standard_broadcasting
+
+    @standard_broadcasting.setter
+    def standard_broadcasting(self, value):
+        self._standard_broadcasting = value
+
+    @property
     def pass_optional(self) -> bool:
         return self._pass_optional
 
     @pass_optional.setter
     def pass_optional(self, value):
         self._pass_optional = value
+
+    @property
+    def bounding_box(self) -> _BoundingBox:
+        if self._bounding_box is None:
+            raise NotImplementedError('No bounding_box has been assigned')
+        else:
+            return self._bounding_box
+
+    def _reverse_bounding_box(self):
+        if self.n_inputs > 1:
+            return self.bounding_box[::-1]
+        else:
+            return [self.bounding_box]
+
+    def _distribute_bounding_box(self):
+        bbox = self._reverse_bounding_box()
+
+        for _input in self._inputs.values():
+            _input.bounding_box = bbox[_input.pos]
+
+    @bounding_box.setter
+    def bounding_box(self, value):
+        if value is None:
+            self._bounding_box = value
+        else:
+            if (self.n_inputs == 1 and len(value) == 2) or \
+                    (self.n_inputs > 1 and len(value) == self.n_inputs):
+                self._bounding_box = _BoundingBox(value)
+                self._distribute_bounding_box()
+            else:
+                raise ValueError('Invalid bounding box passed')
 
     @property
     def inputs(self) -> List[str]:
@@ -605,7 +666,8 @@ class InputMetaData(object):
 
         return Inputs(inputs, optional, modeling_options, kwargs)
 
-    def _get_outside(self, inputs: Inputs, name: str, array_shape: bool) -> Tuple[np.ndarray, tuple]:
+    def _get_outside(self, inputs: Inputs, name: str, array_shape: bool) \
+            -> Tuple[np.ndarray, tuple]:
         if name in inputs.inputs:
             value = inputs.inputs[name]
             if array_shape:
@@ -618,7 +680,8 @@ class InputMetaData(object):
             raise RuntimeError(f'Input: {name} not present in inputs')
 
     def _update_outside_inputs(self, outside_inputs: np.ndarray, all_out: bool,
-                               inputs: Inputs, name: str, array_shape: bool) ->  Tuple[np.ndarray, bool]:
+                               inputs: Inputs, name: str, array_shape: bool) \
+            -> Tuple[np.ndarray, bool]:
         outside, shape = self._get_outside(inputs, name, array_shape)
 
         outside_inputs |= outside
@@ -639,7 +702,8 @@ class InputMetaData(object):
 
         return outside_inputs, all_out
 
-    def _get_valid_index(self, inputs: Inputs, array_shape: bool) -> Tuple[Tuple[np.ndarray, ...], bool]:
+    def _get_valid_index(self, inputs: Inputs, array_shape: bool) \
+            -> Tuple[Tuple[np.ndarray, ...], bool]:
         outside_inputs, all_out = self._outside_inputs(inputs, array_shape)
 
         # get an array with indices of valid inputs
@@ -650,6 +714,26 @@ class InputMetaData(object):
         return valid_index, all_out
 
     def bounding_box_inputs(self, inputs: Inputs, array_shape: bool):
+        # NOTE: this is to replace prepare_bounding_box_inputs
         valid_index, all_out = self._get_valid_index(inputs, array_shape)
 
         return inputs.reduce_to_bounding_box(valid_index, all_out, array_shape)
+
+    def prepare_inputs(self, params: list, *args, **kwargs) -> Inputs:
+        # Process inputs into wrapper
+        inputs = self.evaluation_inputs(*args, **kwargs)
+
+        # equivalent of _validate_input_shapes
+        inputs.check_input_shape(self._n_models, False)
+
+        # TODO: equivalent of self._validate_input_shapes
+
+        # equivalent of _prepare_inputs_single_model
+        inputs.get_format_info(self._n_models, params,
+                               self._standard_broadcasting, self._n_outputs)
+
+        # enforce bounding_box
+        if inputs.with_bounding_box:
+            inputs = self.bounding_box(inputs, True)
+
+        return inputs
