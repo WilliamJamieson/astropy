@@ -19,6 +19,39 @@ modeling_options = {
 
 
 class InputEntry(object):
+    """
+    Class to contain a single required input to an `~astropy.modeling.Model`
+
+    Parameters
+    ----------
+    name : str
+        The model's name for the evaluation input
+    input_value : np.ndarray
+        Contains the value the user passed to model for evaluation
+
+    Methods
+    -------
+    check_input_shape: Returns error checked shape for this input.
+    broadcast: Returns the broadcast shape of this input.
+    reduce_to_bounding_box: Update this input to just consider the array
+        entries computed to be inside the bounding box.
+
+    Notes
+    -----
+    - self.input can be used to directly set and access the input. Note
+      that when using this for setting the value,
+        `np.asanyarray(*, dtype=float)`
+      is called to convert the value into a float np.ndarray (possibly
+      a scalar array). This is consistent with the requirement that all
+      required inputs to `~astropy.modeling.Model` based models use
+      numpy float arrays as inputs.
+    - self.input_array is a way to access self.input (without modifying
+      it) so that the result is always a vector. That is it returns the
+      input if the value is non-scalar and converts scalar values to `(1,)`
+      shaped arrays. This is so that numpy input broadcasting can be
+      supported between scalar and array inputs.
+    - self.shape returns the stored shape of the input.
+    """
     def __init__(self, name: str, input_value):
         self._name = name
         self.input = input_value
@@ -58,6 +91,25 @@ class InputEntry(object):
             return self._input
 
     def _array_shape(self, array_shape: bool) -> tuple:
+        """
+        This is a helper method for self.check_input_shape.
+            It replicates the differences between shape checks (using
+            _validate_input_shapes) performed during current model
+            evaluation calls. First call assumes scalars are scalars,
+            while the second call assumes scalars have been reshaped
+            into `(1,)` shaped arrays.
+
+        Parameters
+        ----------
+        array_shape : bool
+            Determines which mode to use.
+                True for converted array
+                False for scalars remaining un-reshaped
+
+        Returns
+        -------
+            The required shape tuple
+        """
         if array_shape:
             # For call in generic_call
             return self.input_array.shape
@@ -66,6 +118,31 @@ class InputEntry(object):
             return self.shape
 
     def check_input_shape(self, n_models: int, model_set_axis: int, array_shape: bool) -> tuple:
+        """
+        This is the single input level computation to check the shape of an
+        input.
+
+        Parameters
+        ----------
+        n_models : int
+            Number of models (for model set)
+        model_set_axis : int
+            Model option to set which dimension of input array is used
+            when evaluating model set.
+        array_shape : bool
+            Determines which mode to use.
+                True for converted array
+                False for scalars remaining un-reshaped
+
+        Returns
+        -------
+            An error checked input shape.
+
+        Notes
+        -----
+        See Inputs.check_input_shape for cross checking of all model
+        evaluation inputs against one another
+        """
         # NOTE: this method is for replacing _validate_input_shapes
 
         # NOTE: this is currently in place to exactly replicate the two
@@ -88,6 +165,25 @@ class InputEntry(object):
         return shape
 
     def _get_param_broadcast(self, param, standard_broadcasting: bool) -> tuple:
+        """
+        Helper method for self._update_param_broadcast.
+            This method wraps `~astropy.utils.shapes.check_broadcast` with
+            a better error message. It also allows for skipping this check
+            if the model is not using standard_broadcasting.
+
+        Parameters
+        ----------
+        param :
+            A model parameter to get the broadcast shape of this evaluation
+            input against.
+        standard_broadcasting : bool
+            Whether or not standard_broadcasting is used by the model.
+
+        Returns
+        -------
+            broadcast shape of this evaluation input relative to the
+            model parameter.
+        """
         try:
             if standard_broadcasting:
                 return check_broadcast(self.shape, param.shape)
@@ -98,6 +194,25 @@ class InputEntry(object):
                              f"broadcast with parameter {param.name} of shape {param.shape}.")
 
     def _update_param_broadcast(self, broadcast: tuple, param, standard_broadcasting: bool) -> tuple:
+        """
+        Helper method for self.broadcast.
+            Updates this evaluation input's broadcast shape based on the
+            passed in model parameter.
+
+        Parameters
+        ----------
+        broadcast : tuple
+            Currently computed broadcast shape
+        param :
+            A model parameter to get the broadcast shape of this evaluation
+            input against.
+        standard_broadcasting : bool
+            Whether or not standard_broadcasting is used by the model.
+
+        Returns
+        -------
+            An updated broadcast shape based on the current parameter
+        """
         new_broadcast = self._get_param_broadcast(param, standard_broadcasting)
 
         if  len(new_broadcast) > len(broadcast):
@@ -108,6 +223,27 @@ class InputEntry(object):
             return broadcast
 
     def broadcast(self, params: list, standard_broadcasting: bool) -> tuple:
+        """
+        Determines the broadcast shape of this evaluation input relative
+        to all of the model's parameters.
+
+        Parameters
+        ----------
+        params : list
+            A list of all the model's parameter to get this evaluation
+            input's broadcast shape in relation to
+        standard_broadcasting : bool
+            Whether or not standard_broadcasting is used by the model.
+
+        Returns
+        -------
+            The broadcast shape of this input for the model.
+
+        Notes
+        -----
+        This is used to generate the format_info for the inputs, which
+        will be used to generate the post-evaluation output shapes.
+        """
         # NOTE: this method is for replacing _prepare_inputs_single_model
 
         if not params:
@@ -121,14 +257,37 @@ class InputEntry(object):
         return broadcast
 
     def reduce_to_bounding_box(self, valid_index, array_shape: bool) -> 'InputEntry':
+        """
+        Reduces this evaluation input to just the indices computed to
+        be inside the model's bounding box.
+
+        Parameters
+        ----------
+        valid_index : Tuple[np.ndarray, ...]
+            The indices of this input found to be corrisponding to points
+            within the bounding box of the model
+        array_shape : bool
+            Determines which mode to use.
+                True for converted array
+                False for scalars remaining un-reshaped
+
+        Returns
+        -------
+        A new input entry which has been reduced to just the valid_index
+        locations
+
+        Notes
+        -----
+        See Inputs.reduce_to_bounding_box for collective input computation
+        of bounding box reduction.
+        """
+        # Note, pretty sure array_shape is always true (need to check this)
         if array_shape:
             input_value = self.input_array
         else:
             input_value = self.input
 
-        input_value = np.array(input_value)[valid_index]
-
-        return InputEntry(self._name, input_value)
+        return InputEntry(self._name, np.array(input_value)[valid_index])
 
 
 class Inputs(object):
@@ -304,7 +463,6 @@ class Inputs(object):
         self.check_input_shape(n_models, array_shape)
 
         # TODO: do unit checking?
-        
 
 
 class IoMetaDataEntry(object):
