@@ -256,7 +256,7 @@ class InputEntry(object):
 
         return broadcast
 
-    def reduce_to_bounding_box(self, valid_index, array_shape: bool) -> 'InputEntry':
+    def reduce_to_bounding_box(self, valid_index) -> 'InputEntry':
         """
         Reduces this evaluation input to just the indices computed to
         be inside the model's bounding box.
@@ -266,10 +266,6 @@ class InputEntry(object):
         valid_index : Tuple[np.ndarray, ...]
             The indices of this input found to be corrisponding to points
             within the bounding box of the model
-        array_shape : bool
-            Determines which mode to use.
-                True for converted array
-                False for scalars remaining un-reshaped
 
         Returns
         -------
@@ -281,16 +277,51 @@ class InputEntry(object):
         See Inputs.reduce_to_bounding_box for collective input computation
         of bounding box reduction.
         """
-        # Note, pretty sure array_shape is always true (need to check this)
-        if array_shape:
-            input_value = self.input_array
-        else:
-            input_value = self.input
 
-        return InputEntry(self._name, np.array(input_value)[valid_index])
+        # Always requires scalars to be arrays to work, so using input_array version
+        return InputEntry(self._name, np.array(self.input_array)[valid_index])
 
 
 class Inputs(object):
+    """
+    Class to contain all the inputs to an `~astropy.modeling.Model` in
+    an organized and portable fashion
+
+    Parameters
+    ----------
+    inputs : dict
+        Dictionary (stored in evaluation order) of all the required evaluation
+        inputs wrapped in InputEntry objects
+    optional : dict
+        Dictionary of (key: value) of all the optional inputs specified
+        by the model. Values can be default values.
+    model_options : dict
+        Dictionary of all the configured `~astropy.modeling.Model`
+        evaluation options. See modeling_options for defaults.
+    pass_through : dict
+        Dictionary of all the inputs which are not specified by the model
+        which will be passed down to the model evaluation method. Note
+        that is intended to allow for model evaluation to take advantage
+        of options not normally used (scipy options for example). Use
+        of this requires special configurations to be set on the model.
+    format_info : list
+        List of information needed by outputs to reshape the outputs
+        correctly.
+    valid_index : Tuple[np.ndarray, ...]
+        All the input indices which are within the model bounding box
+        if that bounding box is being enforced.
+    all_out : bool
+        True if the entire set of originally passed evaluation inputs
+            are within the bounding box or bounding box is not being enforced.
+        False if not all originally passed evaluation inputs are in
+            bounding box
+
+    Methods
+    -------
+
+    Notes
+    -----
+    """
     def __init__(self, inputs: Dict[str, InputEntry], optional: dict,
                  model_options: dict=modeling_options, pass_through: dict={},
                  format_info: list=None, valid_index: np.ndarray=None, all_out: bool=None):
@@ -440,15 +471,15 @@ class Inputs(object):
 
         self._format_info = self._broadcast(params, standard_broadcasting, n_outputs)
 
-    def _reduce_to_bounding_box(self, valid_index, all_out: bool, array_shape: bool) -> 'Inputs':
+    def _reduce_to_bounding_box(self, valid_index, all_out: bool) -> 'Inputs':
         inputs = {}
         for name, _input in self._inputs.items():
-            inputs[name] = _input.reduce_to_bounding_box(valid_index, array_shape)
+            inputs[name] = _input.reduce_to_bounding_box(valid_index)
 
         return Inputs(inputs, self.optional, self.model_options, self.pass_through,
                       self.format_info, valid_index, all_out)
 
-    def reduce_to_bounding_box(self, valid_index, all_out: bool, array_shape: bool) -> 'Inputs':
+    def reduce_to_bounding_box(self, valid_index, all_out: bool) -> 'Inputs':
         # if not all inputs are not in bounding box, adjust them
         if all_out:
             new = self.copy()
@@ -456,13 +487,7 @@ class Inputs(object):
             new.all_out = all_out
             return new
         else:
-            return self._reduce_to_bounding_box(valid_index, all_out, array_shape)
-
-    def prepare_inputs(self, n_models: int, array_shape: bool):
-        # equivalent of _validate_input_shapes
-        self.check_input_shape(n_models, array_shape)
-
-        # TODO: do unit checking?
+            return self._reduce_to_bounding_box(valid_index, all_out)
 
 
 class IoMetaDataEntry(object):
@@ -824,23 +849,17 @@ class InputMetaData(object):
 
         return Inputs(inputs, optional, modeling_options, kwargs)
 
-    def _get_outside(self, inputs: Inputs, name: str, array_shape: bool) \
-            -> Tuple[np.ndarray, tuple]:
+    def _get_outside(self, inputs: Inputs, name: str) -> Tuple[np.ndarray, tuple]:
         if name in inputs.inputs:
-            value = inputs.inputs[name]
-            if array_shape:
-                value = value.input_array
-            else:
-                value = value.input
+            value = inputs.inputs[name].input_array
 
             return self._inputs[name].outside(value), value.shape
         else:
             raise RuntimeError(f'Input: {name} not present in inputs')
 
     def _update_outside_inputs(self, outside_inputs: np.ndarray, all_out: bool,
-                               inputs: Inputs, name: str, array_shape: bool) \
-            -> Tuple[np.ndarray, bool]:
-        outside, shape = self._get_outside(inputs, name, array_shape)
+                               inputs: Inputs, name: str) -> Tuple[np.ndarray, bool]:
+        outside, shape = self._get_outside(inputs, name)
 
         outside_inputs |= outside
 
@@ -849,20 +868,21 @@ class InputMetaData(object):
 
         return outside_inputs, all_out
 
-    def _outside_inputs(self, inputs: Inputs, array_shape: bool) -> Tuple[np.ndarray, bool]:
-        input_shape = inputs.check_input_shape(self._n_models, array_shape)
+    def _outside_inputs(self, inputs: Inputs) -> Tuple[np.ndarray, bool]:
+        # NOTE: array_shape will always be True for bounding box
+        input_shape = inputs.check_input_shape(self._n_models, True)
 
         outside_inputs = np.zeros(input_shape, dtype=bool)
         all_out = False
         for name in self._inputs:
             outside_inputs, all_out = self._update_outside_inputs(outside_inputs, all_out,
-                                                                  inputs, name, array_shape)
+                                                                  inputs, name)
 
         return outside_inputs, all_out
 
-    def _get_valid_index(self, inputs: Inputs, array_shape: bool) \
+    def _get_valid_index(self, inputs: Inputs) \
             -> Tuple[Tuple[np.ndarray, ...], bool]:
-        outside_inputs, all_out = self._outside_inputs(inputs, array_shape)
+        outside_inputs, all_out = self._outside_inputs(inputs)
 
         # get an array with indices of valid inputs
         valid_index = np.atleast_1d(np.logical_not(outside_inputs)).nonzero()
@@ -871,11 +891,11 @@ class InputMetaData(object):
 
         return valid_index, all_out
 
-    def bounding_box_inputs(self, inputs: Inputs, array_shape: bool):
+    def bounding_box_inputs(self, inputs: Inputs):
         # NOTE: this is to replace prepare_bounding_box_inputs
-        valid_index, all_out = self._get_valid_index(inputs, array_shape)
+        valid_index, all_out = self._get_valid_index(inputs)
 
-        return inputs.reduce_to_bounding_box(valid_index, all_out, array_shape)
+        return inputs.reduce_to_bounding_box(valid_index, all_out)
 
     def prepare_inputs(self, params: list, *args, **kwargs) -> Inputs:
         # Process inputs into wrapper
@@ -892,6 +912,6 @@ class InputMetaData(object):
 
         # enforce bounding_box
         if inputs.with_bounding_box:
-            inputs = self.bounding_box(inputs, True)
+            inputs = self.bounding_box_inputs(inputs)
 
         return inputs

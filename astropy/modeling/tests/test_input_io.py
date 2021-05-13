@@ -214,17 +214,13 @@ class TestInputEntry:
     def test_reduce_to_bounding_box(self):
         entry = input_io.InputEntry('name', np.arange(0, 5))
         valid_index = [1, 3, 4]
-        assert entry.reduce_to_bounding_box(valid_index, True) == \
-            input_io.InputEntry('name', [1, 3, 4])
-        assert entry.reduce_to_bounding_box(valid_index, False) == \
+        assert entry.reduce_to_bounding_box(valid_index) == \
             input_io.InputEntry('name', [1, 3, 4])
 
         entry = input_io.InputEntry('name', 1)
         valid_index = [0]
-        assert entry.reduce_to_bounding_box(valid_index, True) == \
+        assert entry.reduce_to_bounding_box(valid_index) == \
             input_io.InputEntry('name', 1)
-        with pytest.raises(IndexError):
-            entry.reduce_to_bounding_box(valid_index, False)
 
 
 class TestInputs:
@@ -500,8 +496,7 @@ class TestInputs:
 
         valid_index = mk.MagicMock()
         all_out = mk.MagicMock()
-        array_shape = mk.MagicMock()
-        reduced = inputs._reduce_to_bounding_box(valid_index, all_out, array_shape)
+        reduced = inputs._reduce_to_bounding_box(valid_index, all_out)
         assert isinstance(reduced, input_io.Inputs)
         assert reduced.optional == inputs.optional
         assert reduced.format_info == inputs.format_info
@@ -512,12 +507,12 @@ class TestInputs:
             assert name in reduced.inputs
             assert reduced.inputs[name] == entry.reduce_to_bounding_box.return_value
             assert entry.reduce_to_bounding_box.call_args_list == \
-                [mk.call(valid_index, array_shape)]
+                [mk.call(valid_index)]
         for name, entry in reduced.inputs.items():
             assert name in entries
             assert entries[name].reduce_to_bounding_box.return_value == entry
             assert entries[name].reduce_to_bounding_box.call_args_list == \
-                [mk.call(valid_index, array_shape)]
+                [mk.call(valid_index)]
 
     def test_reduce_to_bounding_box(self):
         entries = {f'x{idx}': mk.MagicMock() for idx in range(3)}
@@ -526,12 +521,11 @@ class TestInputs:
         assert inputs._all_out is None
 
         valid_index = mk.MagicMock()
-        array_shape = mk.MagicMock()
 
         with mk.patch.object(input_io.Inputs, '_reduce_to_bounding_box',
                              autospec=True) as mkReduce:
             # Test all out
-            reduced = inputs.reduce_to_bounding_box(valid_index, True, array_shape)
+            reduced = inputs.reduce_to_bounding_box(valid_index, True)
             assert inputs._valid_index is None
             assert reduced._valid_index == valid_index
             assert inputs._all_out is None
@@ -544,9 +538,9 @@ class TestInputs:
             assert mkReduce.call_args_list == []
 
             # Test actually reduce
-            assert inputs.reduce_to_bounding_box(valid_index, False, array_shape) == \
+            assert inputs.reduce_to_bounding_box(valid_index, False) == \
                 mkReduce.return_value
-            assert mkReduce.call_args_list == [mk.call(inputs, valid_index, False, array_shape)]
+            assert mkReduce.call_args_list == [mk.call(inputs, valid_index, False)]
 
 
 class TestIoMetaDataEntry:
@@ -1470,25 +1464,19 @@ class TestInputMetaData:
 
         # Test get outside inputs
         for name in entries:
-            assert input_data._get_outside(inputs, name, True) ==\
+            assert input_data._get_outside(inputs, name) ==\
                 (inputs_data[name].outside.return_value, entries[name].input_array.shape)
             assert inputs_data[name].outside.call_args_list == \
                 [mk.call(entries[name].input_array)]
 
-            assert input_data._get_outside(inputs, name, False) ==\
-                (inputs_data[name].outside.return_value, entries[name].input.shape)
-            assert inputs_data[name].outside.call_args_list == \
-                [mk.call(entries[name].input_array), mk.call(entries[name].input)]
-
         # Test Error check
         with pytest.raises(RuntimeError):
-            input_data._get_outside(inputs, mk.MagicMock(), mk.MagicMock())
+            input_data._get_outside(inputs, mk.MagicMock())
 
     def test__update_outside_inputs(self):
         input_data = input_io.InputMetaData(3)
         inputs = mk.MagicMock()
         name = mk.MagicMock()
-        array_shape = mk.MagicMock()
 
         # Test array input
         outside_inputs = np.zeros((5,), dtype=bool)
@@ -1496,21 +1484,19 @@ class TestInputMetaData:
         with mk.patch.object(input_io.InputMetaData, '_get_outside', autospec=True,
                              return_value=return_data) as mkGet:
             values, all_out = input_data._update_outside_inputs(outside_inputs,
-                                                                False, inputs,
-                                                                name, array_shape)
+                                                                False, inputs, name)
             assert (values == return_data[0]).all()
             assert not all_out
             assert mkGet.call_args_list == \
-                [mk.call(input_data, inputs, name, array_shape)]
+                [mk.call(input_data, inputs, name)]
             mkGet.reset_mock()
 
             values, all_out = input_data._update_outside_inputs(values,
-                                                                False, inputs,
-                                                                name, array_shape)
+                                                                False, inputs, name)
             assert (values == return_data[0]).all()
             assert not all_out
             assert mkGet.call_args_list == \
-                [mk.call(input_data, inputs, name, array_shape)]
+                [mk.call(input_data, inputs, name)]
 
         # Test scalar input
         outside_inputs = np.zeros((5,), dtype=bool)
@@ -1518,59 +1504,55 @@ class TestInputMetaData:
         with mk.patch.object(input_io.InputMetaData, '_get_outside', autospec=True,
                              return_value=return_data) as mkGet:
             values, all_out = input_data._update_outside_inputs(outside_inputs,
-                                                                False, inputs,
-                                                                name, array_shape)
+                                                                False, inputs, name)
             assert (values == return_data[0]).all()
             assert not all_out
             assert mkGet.call_args_list == \
-                [mk.call(input_data, inputs, name, array_shape)]
+                [mk.call(input_data, inputs, name)]
 
         outside_inputs = np.zeros((5,), dtype=bool)
         return_data = [np.asanyarray(True), ()]
         with mk.patch.object(input_io.InputMetaData, '_get_outside', autospec=True,
                              return_value=return_data) as mkGet:
             values, all_out = input_data._update_outside_inputs(outside_inputs,
-                                                                False, inputs,
-                                                                name, array_shape)
+                                                                False, inputs, name)
             assert values.all()
             assert all_out
             assert mkGet.call_args_list == \
-                [mk.call(input_data, inputs, name, array_shape)]
+                [mk.call(input_data, inputs, name)]
 
     def test__outside_inputs(self):
         input_data = input_io.InputMetaData.create_defaults(3)
         input_data.n_models = mk.MagicMock()
 
         inputs = mk.MagicMock()
-        array_shape = mk.MagicMock()
 
         update_effects = [(mk.MagicMock(), mk.MagicMock()) for _ in range(3)]
         with mk.patch.object(input_io.InputMetaData, '_update_outside_inputs',
                              autospec=True, side_effect=update_effects) as mkUpdate:
             with mk.patch.object(np, 'zeros', autospec=True) as mkZeros:
-                outside_inputs, all_out = input_data._outside_inputs(inputs, array_shape)
+                outside_inputs, all_out = input_data._outside_inputs(inputs)
                 assert outside_inputs == update_effects[2][0]
                 assert all_out == update_effects[2][1]
 
                 assert mkUpdate.call_args_list == \
                     [
                         mk.call(input_data, mkZeros.return_value, False,
-                                inputs, 'x0', array_shape),
+                                inputs, 'x0'),
                         mk.call(input_data, update_effects[0][0], update_effects[0][1],
-                                inputs, 'x1', array_shape),
+                                inputs, 'x1'),
                         mk.call(input_data, update_effects[1][0], update_effects[1][1],
-                                inputs, 'x2', array_shape),
+                                inputs, 'x2'),
                     ]
                 assert mkZeros.call_args_list == \
                     [mk.call(inputs.check_input_shape.return_value, dtype=bool)]
                 assert inputs.check_input_shape.call_args_list == \
-                    [mk.call(input_data.n_models, array_shape)]
+                    [mk.call(input_data.n_models, True)]
 
     def test__get_valid_index(self):
         input_data = input_io.InputMetaData.create_defaults(3)
 
         inputs = mk.MagicMock()
-        array_shape = mk.MagicMock()
 
         valid_index_options = [
             [[mk.MagicMock(), mk.MagicMock()], mk.MagicMock()],
@@ -1586,38 +1568,37 @@ class TestInputMetaData:
                 with mk.patch.object(np, 'atleast_1d', autospec=True,
                                      return_value=atleast_return) as mkAtleast:
                     # Do not update all_out
-                    valid_index, all_out = input_data._get_valid_index(inputs, array_shape)
+                    valid_index, all_out = input_data._get_valid_index(inputs)
                     assert valid_index == valid_index_options[0]
                     assert all_out == outside_return[1]
                     assert atleast_return.nonzero.call_args_list == [mk.call()]
                     assert mkAtleast.call_args_list == [mk.call(mkNot.return_value)]
                     assert mkNot.call_args_list == [mk.call(outside_return[0])]
-                    assert mkOutside.call_args_list == [mk.call(input_data, inputs, array_shape)]
+                    assert mkOutside.call_args_list == [mk.call(input_data, inputs)]
                     atleast_return.reset_mock()
                     mkAtleast.reset_mock()
                     mkNot.reset_mock()
                     mkOutside.reset_mock()
 
                     # Do update all_out
-                    valid_index, all_out = input_data._get_valid_index(inputs, array_shape)
+                    valid_index, all_out = input_data._get_valid_index(inputs)
                     assert valid_index == valid_index_options[1]
                     assert all_out == True
                     assert atleast_return.nonzero.call_args_list == [mk.call()]
                     assert mkAtleast.call_args_list == [mk.call(mkNot.return_value)]
                     assert mkNot.call_args_list == [mk.call(outside_return[0])]
-                    assert mkOutside.call_args_list == [mk.call(input_data, inputs, array_shape)]
+                    assert mkOutside.call_args_list == [mk.call(input_data, inputs)]
 
     def test_bounding_box_inputs(self):
         input_data = input_io.InputMetaData.create_defaults(3)
 
         inputs = mk.MagicMock()
-        array_shape = mk.MagicMock()
 
         get_return = (mk.MagicMock(), mk.MagicMock())
         with mk.patch.object(input_io.InputMetaData, '_get_valid_index',
                              autospec=True, return_value=get_return) as mkGet:
-            assert input_data.bounding_box_inputs(inputs, array_shape) == \
+            assert input_data.bounding_box_inputs(inputs) == \
                 inputs.reduce_to_bounding_box.return_value
             assert inputs.reduce_to_bounding_box.call_args_list == \
-                [mk.call(get_return[0], get_return[1], array_shape)]
-            assert mkGet.call_args_list == [mk.call(input_data, inputs, array_shape)]
+                [mk.call(get_return[0], get_return[1])]
+            assert mkGet.call_args_list == [mk.call(input_data, inputs)]
