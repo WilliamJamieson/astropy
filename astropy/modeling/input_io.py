@@ -604,6 +604,14 @@ class Inputs(object):
 
 
 class IoMetaDataEntry(object):
+    """
+    Base class of meta data entries
+
+    Parameters
+    ----------
+    name : str
+        Name of the piece of data
+    """
     def __init__(self, name: str=None):
         self._name = name
 
@@ -627,6 +635,29 @@ class IoMetaDataEntry(object):
 
 
 class InputMetaDataEntry(IoMetaDataEntry):
+    """
+    Contains meta data on a single required input for a model.
+
+    Parameters
+    ----------
+    name : str
+        Name of the input
+    pos : int
+        Position of the input in ordered set of inputs
+    bounding_box : _BoundingBox (1-D)
+        Bounding box for the single input in question
+
+    Constructors
+    ------------
+    create_entry:
+        Creates the entry from standardized inputs. This is for backwards
+        compatibility with previous model evaluation IO system.
+
+    Methods
+    -------
+    outside:
+        Determines what parts of an array are outside the bounding box
+    """
     def __init__(self, name: str=None, pos: int=None, bounding_box: _BoundingBox=None):
         super().__init__(name)
 
@@ -677,6 +708,22 @@ class InputMetaDataEntry(IoMetaDataEntry):
 
 
 class OptionalMetaDataEntry(IoMetaDataEntry):
+    """
+    Contains meta data on a single optional input for a model.
+
+    Parameters
+    ----------
+    name : str
+        Name of data
+    default : any
+        default value for the input
+
+    Constructors
+    ------------
+    create_entry:
+        Creates the entry from standardized inputs. This is for backwards
+        compatibility with previous model evaluation IO system.
+    """
     def __init__(self, name: str=None, default=None):
         super().__init__(name)
 
@@ -699,6 +746,37 @@ class OptionalMetaDataEntry(IoMetaDataEntry):
 
 
 class InputMetaData(object):
+    """
+    Class to contain all the evaluation input data for a model
+
+    Parameters
+    ----------
+    n_inputs : int
+        number of inputs
+    inputs : dict
+        Dictionary of required input metadata
+    optional : dict
+        Dictionary of optional input metadata
+    n_models : int
+        Number of models in the model set
+    n_outputs : int
+        Number of outputs for model
+    standard_broadcasting : bool
+        If standard broadcasting will be used by model
+    bounding_box : _BoundingBox
+        The total bounding_box for the model inputs
+    pass_optional : bool
+        If we pass all of the other inputs down.
+            Turning this on may result in unexpected behavior.
+
+    Constructors
+    ------------
+    create_defaults:
+        Creates a default metadata object.
+
+    Methods
+    -------
+    """
     def __init__(self, n_inputs: int,
                  inputs: Dict[str, InputMetaDataEntry]=None,
                  optional: Dict[str, OptionalMetaDataEntry]=None,
@@ -724,6 +802,11 @@ class InputMetaData(object):
         self.bounding_box = bounding_box
 
     def _fill_defaults(self):
+        """
+        Helper function for create_defaults
+            Generates the required number of inputs under the standard
+            names.
+        """
         if self._n_inputs == 1:
             self.inputs = ['x']
         elif self.n_inputs == 2:
@@ -732,7 +815,22 @@ class InputMetaData(object):
             self.inputs = [f'x{idx}' for idx in range(self.n_inputs)]
 
     @classmethod
-    def create_defaults(cls, n_inputs: int, optional=None, pass_optional=False):
+    def create_defaults(cls, n_inputs: int,
+                        optional: Dict[str, OptionalMetaDataEntry]=None,
+                        pass_optional: bool=False) -> 'InputMetaData':
+        """
+        Create InputMetaData object with default values.
+
+        Parameters
+        ----------
+        n_inputs : int
+            The number of required evaluation inputs for the model.
+        optional : dict
+            The optional inputs for the model
+        pass_optional : bool
+            If model will pass all evaluation arguments down to evaluation
+            method.
+        """
         new = cls(n_inputs, optional=optional, pass_optional=pass_optional)
         new._fill_defaults()
 
@@ -787,12 +885,29 @@ class InputMetaData(object):
             return self._bounding_box
 
     def _reverse_bounding_box(self):
+        """
+        Helper function for self._distribute_bounding_box.
+            This reverses the order of the bounding_box entries so that
+            input meta data can get the correct one.
+
+        Notes
+        -----
+        Other design decisions for `~astropy.Modeling` have made it so
+        that multidimensional bounding boxes store the individual dimension
+        boxes in reverse order to the normal order of passing a coordinate.
+        This method reverses this order to work around this design choice.
+        """
         if self.n_inputs > 1:
             return self.bounding_box[::-1]
         else:
             return [self.bounding_box]
 
     def _distribute_bounding_box(self):
+        """
+        Helper function for bounding_box setter.
+            This function passes the correct parts of the bounding box
+            to the correct required inputs.
+        """
         bbox = self._reverse_bounding_box()
 
         for _input in self._inputs.values():
@@ -825,6 +940,9 @@ class InputMetaData(object):
         self._optional = {}
 
     def validate(self):
+        """
+        Validates that the ALL the input metadata is self consistent.
+        """
         if (len(self._inputs) > 0) and (self._n_inputs != len(self._inputs)):
             raise ValueError('n_inputs must match the number of entries in inputs.')
 
@@ -842,6 +960,17 @@ class InputMetaData(object):
 
     @staticmethod
     def _process_inputs_atr(value, data_entry) -> dict:
+        """
+        Helper method for self._set_inputs_atr
+            Creates the correct input entry object
+
+        Parameters
+        ----------
+        value : any
+            The data to be stored
+        data_entry : IoMetaDataEntry
+            The specific IoMetaDataEntry type to store the value in
+        """
         inputs = {}
         if value is not None:
             if isinstance(value, list):
@@ -858,6 +987,19 @@ class InputMetaData(object):
         return inputs
 
     def _set_inputs_atr(self, atr: str, value, data_entry):
+        """
+        Helper function for both inputs setter and optional setter.
+            Creates and then sets the value into the correct attribute
+
+        Parameters
+        ----------
+        atr : str
+            The attribute to set
+        value : any
+            The metadata to be set
+        data_entry : IoMetaDataEntry
+            The specific IoMetaDataEntry type to store the value in
+        """
         if hasattr(self, atr):
             input_atr = getattr(self, atr)
             if len(input_atr) != 0:
@@ -878,12 +1020,51 @@ class InputMetaData(object):
         self.validate()
 
     def get_input_data(self, name: str) -> InputMetaDataEntry:
+        """
+        Get metadata on specific required evaluation input
+
+        Parameters
+        ----------
+        name : str
+            name of the input
+
+        Returns
+        -------
+        The metadata entry for the input
+        """
         return self._inputs[name]
 
     def get_optional_data(self, name: str) -> OptionalMetaDataEntry:
+        """
+        Get metadata on specific required optional evaluation input
+
+        Parameters
+        ----------
+        name : str
+            name of the input
+
+        Returns
+        -------
+        The metadata entry for the input
+        """
         return self._optional[name]
 
     def _get_inputs_from_kwargs(self, **kwargs) -> Tuple[dict, dict]:
+        """
+        Helper function for self._get_inputs
+            Extracts the required inputs which have been passed as kwargs
+
+        Parameters
+        ----------
+        kwargs :
+            The kwargs passed to the model for evluation
+
+        Returns
+        tuple(
+            Dictionary of the required inputs passed as kwargs,
+            kwargs with the required inputs removed
+        )
+        """
         input_kwargs = {}
 
         for name in self._inputs:
@@ -894,6 +1075,18 @@ class InputMetaData(object):
         return input_kwargs, kwargs
 
     def _check_inputs(self, *args, **kwargs):
+        """
+        Helper function for self._get_inputs
+            Performs basic consistency check on model evaluation arguments
+
+        Parameters
+        ----------
+        args :
+            The positional arguments passed to model for evaluation
+        kwargs :
+            The required arguments passed to the model as kwargs for
+            evaluation
+        """
         n_args = len(args) + len(kwargs)
         if self._n_inputs < n_args:
             raise RuntimeError(f'Too many input arguments - expected {self._n_inputs}, got {n_args}')
@@ -901,6 +1094,22 @@ class InputMetaData(object):
             raise RuntimeError(f'Too few input arguments - expected {self._n_inputs}, got {n_args}')
 
     def _create_inputs(self, *args, **kwargs) -> Dict[str, InputEntry]:
+        """
+        Helper function for self._get_inputs
+            Turns user evaluation inputs into InputEntry objects
+
+        Parameters
+        ----------
+        args :
+            The positional arguments passed to model for evaluation
+        kwargs :
+            The required arguments passed to the model as kwargs for
+            evaluation
+
+        Returns
+        -------
+        Dictionary of input arguments
+        """
         args = list(args)
         inputs = {}
         for name in self._inputs:
@@ -912,12 +1121,47 @@ class InputMetaData(object):
         return inputs
 
     def _get_inputs(self, *args, **kwargs) -> Tuple[Dict[str, InputEntry], dict]:
+        """
+        Helper function for self.evaluation_inputs
+            Performs all the steps necessary to check and create all the InputEntry
+            objects
+
+        Parameters
+        ----------
+        args :
+            The positional arguments passed to model for evaluation
+        kwargs :
+            The kwargs passed to the model for evaluation
+
+        Returns
+        -------
+        tuple(
+            Dictionary of input arguments,
+            kwargs with no required inputs included
+        )
+        """
         input_kwargs, kwargs = self._get_inputs_from_kwargs(**kwargs)
         self._check_inputs(*args, **input_kwargs)
 
         return self._create_inputs(*args, **input_kwargs), kwargs
 
     def _fill_optional(self, **kwargs) -> Tuple[dict, dict]:
+        """
+        Helper function for self._get_options
+            Fills in all the optional inputs
+
+        Parameters
+        ----------
+        kwargs :
+            User's kwargs with the required inputs removed
+
+        Returns
+        -------
+        tuple(
+            Dictionary of optional inputs,
+            kwargs with required and optional inputs removed.
+        )
+        """
         optional = {}
         for name, optional_input in self._optional.items():
             if name in kwargs:
@@ -931,6 +1175,31 @@ class InputMetaData(object):
         return optional, kwargs
 
     def _fill_model_options(self, optional: dict, **kwargs) -> Tuple[dict, dict, dict]:
+        """
+        Helper function for self._get_options
+            Fills in all the optional inputs
+
+        Parameters
+        ----------
+        optional : dict
+            The optional inputs
+        kwargs :
+            User's kwargs with the required inputs and optional removed
+
+        Returns
+        -------
+        tuple(
+            Dictionary of optional inputs (no modeling options),
+            modeling options,
+            kwargs with required, optional inputs, and modeling options removed.
+        )
+
+        Notes
+        -----
+        The metadata object allows one to override the default modeling_options
+        with model specific defaults. These options are transfered here from
+        optional input storage to model_options.
+        """
         model_options = {}
         options = optional.copy()
         for name, default in modeling_options.items():
@@ -948,6 +1217,28 @@ class InputMetaData(object):
         return options, model_options, kwargs
 
     def _get_options(self, **kwargs) -> Tuple[dict, dict, dict]:
+        """
+        Helper function for self.evaluation_inputs
+            Read all the kwargs
+
+        Parameters
+        ----------
+        kwargs :
+            User's kwargs with the required inputsremoved
+
+        Returns
+        -------
+        tuple(
+            Dictionary of optional inputs (no modeling options),
+            modeling options,
+            all remaining kwargs
+        )
+
+        Notes
+        -----
+        If pass_through is disabled, an error will be raised if there
+        are any unaccounted for kwargs.
+        """
         optional, kwargs = self._fill_optional(**kwargs)
         optional, modeling_options, kwargs = self._fill_model_options(optional, **kwargs)
 
@@ -957,12 +1248,44 @@ class InputMetaData(object):
         return optional, modeling_options, kwargs
 
     def evaluation_inputs(self, *args, **kwargs) -> Inputs:
+        """
+        Turn the user's evaluation inputs to a model into an Inputs object
+
+        Parameters
+        ----------
+        args :
+            The positional arguments passed to model for evaluation
+        kwargs :
+            The kwargs passed to the model for evaluation
+
+        Returns
+        -------
+        Validated Inputs object
+        """
         inputs, kwargs = self._get_inputs(*args, **kwargs)
         optional, modeling_options, kwargs = self._get_options(**kwargs)
 
         return Inputs(inputs, optional, modeling_options, kwargs)
 
     def _get_outside(self, inputs: Inputs, name: str) -> Tuple[np.ndarray, tuple]:
+        """
+        Helper function for self._update_outside_inputs
+            Gets the indices of an input which are outside the bounding_box.
+
+        Parameters
+        ----------
+        inputs : Inputs
+            The processed evaluation inputs object
+        name : str
+            Name of input in question
+
+        Returns
+        -------
+        tuple(
+            array specifying which indices of the input are outside the bounding box,
+            the shape of the input.
+        )
+        """
         if name in inputs.inputs:
             value = inputs.inputs[name].input_array
 
@@ -972,6 +1295,29 @@ class InputMetaData(object):
 
     def _update_outside_inputs(self, outside_inputs: np.ndarray, all_out: bool,
                                inputs: Inputs, name: str) -> Tuple[np.ndarray, bool]:
+        """
+        Helper function for self._outside_inputs
+            Updates the where inputs maybe outside of bounding box
+
+        Parameters
+        ----------
+        outside_inputs : np.ndarray
+            Boolean array which specifies which indices are inside/outside
+            the bounding box currently
+        all_out : bool
+            If all of the inputs are inside the bounding_box or not.
+        inputs : Inputs
+            The processed evaluation inputs object
+        name : str
+            Name of input to update with
+
+        Returns
+        -------
+        tuple(
+            updated outside_inputs value,
+            updated all_out value
+        )
+        """
         outside, shape = self._get_outside(inputs, name)
 
         outside_inputs |= outside
@@ -982,6 +1328,23 @@ class InputMetaData(object):
         return outside_inputs, all_out
 
     def _outside_inputs(self, inputs: Inputs) -> Tuple[np.ndarray, bool]:
+        """
+        Helper function for self._get_valid_index
+            Deterimines indices of input arrays that are in/out of bounding
+            box.
+
+        Parameters
+        ----------
+        inputs : Inputs
+            The processed evaluation inputs object
+
+        Returns
+        -------
+        tuple(
+            boolean array specifying if indices are inside/outside bounding box,
+            if all of inputs are inside/outside bounding_box.
+        )
+        """
         # NOTE: array_shape will always be True for bounding box
         input_shape = inputs.check_input_shape(self._n_models, True)
 
@@ -993,8 +1356,23 @@ class InputMetaData(object):
 
         return outside_inputs, all_out
 
-    def _get_valid_index(self, inputs: Inputs) \
-            -> Tuple[Tuple[np.ndarray, ...], bool]:
+    def _get_valid_index(self, inputs: Inputs) -> Tuple[Tuple[np.ndarray, ...], bool]:
+        """
+        Helper function for self.bounding_box_inputs
+            Generates the list of valid indices for the input arrays
+
+        Parameters
+        ----------
+        inputs : Inputs
+            The processed evaluation inputs object
+
+        Returns
+        -------
+        tuple(
+            Array specifying which indices are inside bounding box
+            if all of inputs are inside/outside bounding_box.
+        )
+        """
         outside_inputs, all_out = self._outside_inputs(inputs)
 
         # get an array with indices of valid inputs
@@ -1004,13 +1382,28 @@ class InputMetaData(object):
 
         return valid_index, all_out
 
-    def bounding_box_inputs(self, inputs: Inputs):
+    def bounding_box_inputs(self, inputs: Inputs) -> Inputs:
+        """
+        Creates an Inputs object whose values are all inside the bounding box
+
+        Parameters
+        ----------
+        inputs : Inputs
+            The processed evaluation inputs object
+
+        Returns
+        -------
+        new inputs object with only inputs inside bounding box
+        """
         # NOTE: this is to replace prepare_bounding_box_inputs
         valid_index, all_out = self._get_valid_index(inputs)
 
         return inputs.reduce_to_bounding_box(valid_index, all_out)
 
     def prepare_inputs(self, params: list, *args, **kwargs) -> Inputs:
+        """
+        Prepares the user's evaluation inputs for model evaluation
+        """
         # Process inputs into wrapper
         inputs = self.evaluation_inputs(*args, **kwargs)
 
