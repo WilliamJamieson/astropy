@@ -232,7 +232,7 @@ class TestInputs:
         assert inputs._optional == {'option': 2}
         assert inputs._model_options == input_io.modeling_options
         assert inputs._pass_through == {}
-        assert inputs._format_info is None
+        assert inputs._broadcast_info is None
         assert inputs._valid_index is None
         assert inputs._all_out is None
 
@@ -245,7 +245,7 @@ class TestInputs:
         assert inputs._optional == {'option': 2}
         assert inputs._model_options == modeling_options
         assert inputs._pass_through == {'pass': 1}
-        assert inputs._format_info == [3]
+        assert inputs._broadcast_info == [3]
         assert inputs._valid_index == np.array([7])
         assert inputs._all_out
 
@@ -275,11 +275,11 @@ class TestInputs:
 
         # Not matching format_info
         inputs2._valid_index = inputs1._valid_index
-        inputs2._format_info = mk.MagicMock()
+        inputs2._broadcast_info = mk.MagicMock()
         assert not (inputs1 == inputs2)
 
         # Not matching pass_through
-        inputs2._format_info = inputs1._format_info
+        inputs2._broadcast_info = inputs1._broadcast_info
         inputs2._pass_through = mk.MagicMock()
         assert not (inputs1 == inputs2)
 
@@ -408,16 +408,16 @@ class TestInputs:
         assert inputs._pass_through == {'pass': 7}
         assert inputs.pass_through == {'pass': 7}
 
-    def test_format_info(self):
+    def test_broadcast_info(self):
         inputs = input_io.Inputs({'test': input_io.InputEntry('test', 1)},
                                  {'option': 2})
         # None value
-        assert inputs._format_info is None
-        assert inputs.format_info == []
+        assert inputs._broadcast_info is None
+        assert inputs.broadcast_info == []
 
         # Not None
-        inputs._format_info = [3, 4]
-        assert inputs.format_info == [3, 4]
+        inputs._broadcast_info = [3, 4]
+        assert inputs.broadcast_info == [3, 4]
 
     def test_valid_index(self):
         inputs = input_io.Inputs({'test': input_io.InputEntry('test', 1)},
@@ -490,6 +490,77 @@ class TestInputs:
                 assert len(mkAxis.call_args_list) == len(entries)
                 assert mkCheck.call_args_list == [mk.call(*check_args)]
 
+    def test__get_broadcasts(self):
+        entries = {f'x{idx}': mk.MagicMock() for idx in range(3)}
+        inputs = input_io.Inputs(entries, mk.MagicMock())
+
+        params = mk.MagicMock()
+        standard_broadcasting = mk.MagicMock()
+
+        broadcasts = inputs._get_broadcasts(params, standard_broadcasting)
+        assert broadcasts == [entry.broadcast.return_value for entry in entries.values()]
+        for entry in entries.values():
+            assert entry.broadcast.call_args_list == [mk.call(params, standard_broadcasting)]
+
+    def test__extend_broadcasts(self):
+        # No inputs
+        inputs = input_io.Inputs({}, {})
+
+        broadcasts = []
+        inputs._extend_broadcasts(3, broadcasts)
+        assert broadcasts == [(), (), (), ()]
+
+        broadcasts = [(1,)]
+        inputs._extend_broadcasts(3, broadcasts)
+        assert broadcasts == [(1,), (1,), (1,), (1,)]
+
+        broadcasts = []
+        inputs._extend_broadcasts(0, broadcasts)
+        assert broadcasts == []
+
+        broadcasts = [(1,)]
+        inputs._extend_broadcasts(0, broadcasts)
+        assert broadcasts == [(1,)]
+
+        # Some inputs
+        entries = {f'x{idx}': mk.MagicMock() for idx in range(3)}
+        inputs = input_io.Inputs(entries, mk.MagicMock())
+
+        broadcasts = [(1,), (2,), (3,)]
+        inputs._extend_broadcasts(4, broadcasts)
+        assert broadcasts == [(1,), (2,), (3,), (1,)]
+
+        broadcasts = [(1,), (2,), (3,)]
+        inputs._extend_broadcasts(3, broadcasts)
+        assert broadcasts == [(1,), (2,), (3,)]
+
+        broadcasts = []
+        inputs._extend_broadcasts(3, broadcasts)
+        assert broadcasts == []
+
+        broadcasts = []
+        inputs._extend_broadcasts(4, broadcasts)
+        assert broadcasts == [(), ()]
+
+    def test_broadcast(self):
+        inputs = input_io.Inputs({}, {})
+
+        params = mk.MagicMock()
+        standard_broadcasting = mk.MagicMock()
+        n_outputs = mk.MagicMock()
+
+        with mk.patch.object(input_io.Inputs, '_get_broadcasts',
+                             autospec=True) as mkGet:
+            with mk.patch.object(input_io.Inputs, '_extend_broadcasts',
+                                 autospec=True) as mkExtend:
+                assert inputs._broadcast_info is None
+                inputs.broadcast(params, standard_broadcasting, n_outputs)
+                assert inputs._broadcast_info == mkGet.return_value
+                assert mkExtend.call_args_list == \
+                    [mk.call(inputs, n_outputs, mkGet.return_value)]
+                assert mkGet.call_args_list == \
+                    [mk.call(inputs, params, standard_broadcasting)]
+
     def test__reduce_to_bounding_box(self):
         entries = {f'x{idx}': mk.MagicMock() for idx in range(3)}
         inputs = input_io.Inputs(entries, mk.MagicMock())
@@ -499,7 +570,7 @@ class TestInputs:
         reduced = inputs._reduce_to_bounding_box(valid_index, all_out)
         assert isinstance(reduced, input_io.Inputs)
         assert reduced.optional == inputs.optional
-        assert reduced.format_info == inputs.format_info
+        assert reduced.broadcast_info == inputs.broadcast_info
         assert reduced.valid_index == valid_index
         assert reduced.all_out == all_out
         assert len(reduced.inputs) == len(entries) == 3
@@ -534,7 +605,7 @@ class TestInputs:
             assert inputs._optional == reduced._optional
             assert inputs._model_options == reduced._model_options
             assert inputs._pass_through == reduced._pass_through
-            assert inputs._format_info == reduced._format_info
+            assert inputs._broadcast_info == reduced._broadcast_info
             assert mkReduce.call_args_list == []
 
             # Test actually reduce

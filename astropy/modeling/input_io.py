@@ -31,10 +31,13 @@ class InputEntry(object):
 
     Methods
     -------
-    check_input_shape: Returns error checked shape for this input.
-    broadcast: Returns the broadcast shape of this input.
-    reduce_to_bounding_box: Update this input to just consider the array
-        entries computed to be inside the bounding box.
+    check_input_shape:
+        Returns error checked shape for this input.
+    broadcast:
+        Returns the broadcast shape of this input.
+    reduce_to_bounding_box:
+        Update this input to just consider the array entries computed
+        to be inside the bounding box.
 
     Notes
     -----
@@ -231,7 +234,7 @@ class InputEntry(object):
         ----------
         params : list
             A list of all the model's parameter to get this evaluation
-            input's broadcast shape in relation to
+            input's broadcast shape in relation to.
         standard_broadcasting : bool
             Whether or not standard_broadcasting is used by the model.
 
@@ -304,9 +307,9 @@ class Inputs(object):
         that is intended to allow for model evaluation to take advantage
         of options not normally used (scipy options for example). Use
         of this requires special configurations to be set on the model.
-    format_info : list
+    broadcast_info : list
         List of information needed by outputs to reshape the outputs
-        correctly.
+        correctly. (same as format_info on generic_call)
     valid_index : Tuple[np.ndarray, ...]
         All the input indices which are within the model bounding box
         if that bounding box is being enforced.
@@ -318,20 +321,23 @@ class Inputs(object):
 
     Methods
     -------
-
-    Notes
-    -----
+    check_input_shape:
+        Returns error checked shape which all inputs can be broadcast to.
+    broadcast:
+        Sets the broadcast_info so that outputs can be properly shaped
+    reduce_to_bounding_box:
+        Returns an Inputs object with inputs inside the bounding box.
     """
     def __init__(self, inputs: Dict[str, InputEntry], optional: dict,
                  model_options: dict=modeling_options, pass_through: dict={},
-                 format_info: list=None, valid_index: np.ndarray=None, all_out: bool=None):
+                 broadcast_info: list=None, valid_index: np.ndarray=None, all_out: bool=None):
         self._inputs = inputs
         self._optional = optional
 
         self.model_options = model_options
         self._pass_through = pass_through
 
-        self._format_info = format_info
+        self._broadcast_info = broadcast_info
         self._valid_index = valid_index
         self._all_out = all_out
 
@@ -340,7 +346,7 @@ class Inputs(object):
             return (self.inputs == this.inputs) and \
                 (self.optional == this.optional) and \
                 (self.model_options == this.model_options) and \
-                (self.format_info == this.format_info) and \
+                (self.broadcast_info == this.broadcast_info) and \
                 (self.pass_through == this.pass_through) and \
                 (self.valid_index == this.valid_index).all() and \
                 (self.all_out == this.all_out)
@@ -365,6 +371,10 @@ class Inputs(object):
 
     @model_options.setter
     def model_options(self, value: dict):
+        """
+        Includes checking to make sure all options are set
+            (should happen by default)
+        """
         for name in modeling_options:
             if name not in value:
                 raise ValueError(f"Modeling option {name} must be set!")
@@ -372,6 +382,9 @@ class Inputs(object):
             self._model_options = value
 
     def _get_model_option(self, name: str):
+        """
+        Get a modeling_option by name.
+        """
         if name in self._model_options:
             return self._model_options[name]
         else:
@@ -402,11 +415,11 @@ class Inputs(object):
         return self._pass_through
 
     @property
-    def format_info(self) -> list:
-        if self._format_info is None:
+    def broadcast_info(self) -> list:
+        if self._broadcast_info is None:
             return []
         else:
-            return self._format_info
+            return self._broadcast_info
 
     @property
     def valid_index(self) -> np.ndarray:
@@ -434,6 +447,25 @@ class Inputs(object):
         return deepcopy(self)
 
     def check_input_shape(self, n_models: int, array_shape: bool):
+        """
+        Checks all the evaluation input shapes, then finds the broadcast
+        shape for all the inputs.
+            This method replaces _validate_input_shapes
+
+        Parameters
+        ----------
+        n_models : int
+            Number of models (for model set)
+        array_shape : bool
+            Determines which mode to use.
+                True for converted array
+                False for scalars remaining un-reshaped
+
+        Returns
+        -------
+            An error checked and broadcasted shape for all the evaluation
+            inputs.
+        """
         # NOTE: this method is for replacing _validate_input_shapes
         input_shape = check_broadcast(*[_input.check_input_shape(n_models, self.model_set_axis, array_shape)
                                         for _input in self._inputs.values()])
@@ -442,12 +474,46 @@ class Inputs(object):
 
         return input_shape
 
-    def _broadcast(self, params: list, standard_broadcasting: bool, n_outputs: int) -> list:
-        # NOTE: this method is for replacing _prepare_inputs_single_model
+    def _get_broadcasts(self, params: list, standard_broadcasting: bool) -> list:
+        """
+        Helper function for self.broadcast.
+            Calls and records the result of broadcast on each evaluation input
+
+        Parameters
+        ----------
+        params : list
+            A list of all the model's parameter to get this evaluation
+            input's broadcast shape in relation to.
+        standard_broadcasting : bool
+            Whether or not standard_broadcasting is used by the model.
+
+        Returns
+        -------
+            list of input broadcasts in input order
+        """
 
         # TODO: could this be a dictionary?
-        broadcasts = [_input.broadcast(params, standard_broadcasting) for _input in self._inputs.values()]
+        return [_input.broadcast(params, standard_broadcasting)
+                for _input in self._inputs.values()]
 
+    def _extend_broadcasts(self, n_outputs: int, broadcasts: list):
+        """
+        Helper function for self.broadcast.
+            Extends the broadcast results when there are more outputs
+            than inputs.
+
+        Parameters
+        ----------
+        n_outputs : int
+            The number of outputs for the model being evaluated.
+        broadcasts : list
+            The broadcast shapes of the inputs
+
+        Notes
+        -----
+        This simply modifies broadcasts in place if necessary.
+        """
+        # Note that this is copied from _prepare_inputs_single_model. It needs improvement.
         if n_outputs > self.n_inputs:
             extra_outputs = n_outputs - self.n_inputs
             if not broadcasts:
@@ -456,30 +522,77 @@ class Inputs(object):
                 # inputs necessary (see _prepare_outputs_single_model)
 
                 # TODO: check for broadcast None checks
-                broadcasts.append(tuple())
+                broadcasts.append(())
             # TODO: check why its always the first one
             broadcasts.extend([broadcasts[0]] * extra_outputs)
 
-        return broadcasts
+    def broadcast(self, params: list, standard_broadcasting: bool, n_outputs: int):
+        """
+        Creates all the broadcast information and stores it in self._broadcast_info
+            This method is for replacing _prepare_inputs_single_model
 
-    def get_format_info(self, n_models: int, params: list,
-                        standard_broadcasting: bool, n_outputs: int):
-        # Note: this method is for replacing ~Model.prepare_inputs
+        Parameters
+        ----------
+        params : list
+            A list of all the model's parameter to get this evaluation
+            input's broadcast shape in relation to.
+        standard_broadcasting : bool
+            Whether or not standard_broadcasting is used by the model.
+        n_outputs : int
+            Number of outputs of the model being evaluated.
 
-        self.check_input_shape(n_models, False)
-        # TODO: add units handling
+        Notes
+        -----
+        This is the only way to set the broadcast_info for inputs.
+        """
+        # NOTE: this method is for replacing _prepare_inputs_single_model
 
-        self._format_info = self._broadcast(params, standard_broadcasting, n_outputs)
+        broadcasts = self._get_broadcasts(params, standard_broadcasting)
+        self._extend_broadcasts(n_outputs, broadcasts)
+
+        self._broadcast_info = broadcasts
 
     def _reduce_to_bounding_box(self, valid_index, all_out: bool) -> 'Inputs':
-        inputs = {}
-        for name, _input in self._inputs.items():
-            inputs[name] = _input.reduce_to_bounding_box(valid_index)
+        """
+        Helper function for self.reduce_to_bounding_box
+            Performs the bounding_box reduction.
+
+        Parameters
+        ----------
+        valid_index : Tuple[np.ndarray, ...]
+            The indices of this input found to be corrisponding to points
+            within the bounding box of the model
+        all_out : bool
+            If all of the evaulation inputs are in bounding_box
+
+        Returns
+        -------
+        A new set of Inputs which have been adjusted
+        """
+        inputs = {name: _input.reduce_to_bounding_box(valid_index)
+                  for name, _input in self._inputs.items()}
 
         return Inputs(inputs, self.optional, self.model_options, self.pass_through,
-                      self.format_info, valid_index, all_out)
+                      self.broadcast_info, valid_index, all_out)
 
     def reduce_to_bounding_box(self, valid_index, all_out: bool) -> 'Inputs':
+        """
+        Reduces a set of inputs to be inside the bounding box of a model
+
+        Parameters
+        ----------
+        valid_index : Tuple[np.ndarray, ...]
+            The indices of this input found to be corrisponding to points
+            within the bounding box of the model
+        all_out : bool
+            If all of the evaulation inputs are in bounding_box.
+                True returns copy of inputs with valid_index and all_out set.
+                False returns a reduced version
+
+        Returns
+        -------
+        A new set of Inputs which have been adjusted
+        """
         # if not all inputs are not in bounding box, adjust them
         if all_out:
             new = self.copy()
@@ -907,8 +1020,7 @@ class InputMetaData(object):
         # TODO: equivalent of self._validate_input_shapes
 
         # equivalent of _prepare_inputs_single_model
-        inputs.get_format_info(self._n_models, params,
-                               self._standard_broadcasting, self._n_outputs)
+        inputs.broadcast(params, self._standard_broadcasting, self._n_outputs)
 
         # enforce bounding_box
         if inputs.with_bounding_box:
