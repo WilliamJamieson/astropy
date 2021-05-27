@@ -297,7 +297,7 @@ class TestInputEntry:
                  mk.call(entry, effects[0], input_shape, params[1], model_set_axis),
                  mk.call(entry, effects[1], input_shape, params[2], model_set_axis)]
 
-    def test__new_input(self):
+    def test__new_input_value(self):
         entry = evaluation_io.InputEntry('name', 1)
         input_ndim = mk.MagicMock()
         max_param_shape = mk.MagicMock()
@@ -307,14 +307,19 @@ class TestInputEntry:
                              autospec=True) as mkNoAxis:
             with mk.patch.object(evaluation_io.InputEntry, '_new_input_axis',
                                  autospec=True) as mkAxis:
-                assert entry._new_input(input_ndim, max_param_shape,
-                                        model_set_axis, True) == mkAxis.return_value
+                # Axis
+                assert entry._new_input_value(input_ndim, max_param_shape,
+                                              model_set_axis, True) == \
+                    mkAxis.return_value
                 assert mkNoAxis.call_args_list == []
                 assert mkAxis.call_args_list == \
                     [mk.call(entry, input_ndim, max_param_shape, model_set_axis, True)]
                 mkAxis.reset_mock()
-                assert entry._new_input(input_ndim, max_param_shape,
-                                        model_set_axis, False) == mkNoAxis.return_value
+
+                # No axis
+                assert entry._new_input_value(input_ndim, max_param_shape,
+                                              model_set_axis, False) == \
+                    mkNoAxis.return_value
                 assert mkNoAxis.call_args_list == \
                     [mk.call(entry, input_ndim, max_param_shape, model_set_axis)]
                 assert mkAxis.call_args_list == []
@@ -367,7 +372,7 @@ class TestInputEntry:
                              autospec=True) as mkGet:
             with mk.patch.object(evaluation_io.InputEntry, '_max_param_shape',
                                  autospec=True) as mkMax:
-                with mk.patch.object(evaluation_io.InputEntry, '_new_input',
+                with mk.patch.object(evaluation_io.InputEntry, '_new_input_value',
                                      autospec=True, return_value=value) as mkNew:
                     new_input, pivot = entry.new_input(params, model_set_axis,
                                                        n_models, model_set_axis_input)
@@ -558,7 +563,7 @@ class TestInputs:
                 [mk.call(old_entries[f'x{idx}'], params, model_set_axis,
                          n_models, model_set_axis_input) for idx in range(3)]
 
-    def test_new_inputs(self):
+    def test_pivots(self):
         entries = {f'x{idx}': evaluation_io.InputEntry(f'x{idx}', mk.MagicMock())
                    for idx in range(3)}
         inputs = evaluation_io.Inputs(entries)
@@ -575,8 +580,8 @@ class TestInputs:
                                  new_callable=mk.PropertyMock,
                                  return_value=3) as mkInputs:
                 # No extension (n_inputs >= n_outputs)
-                assert inputs.new_inputs(params, model_set_axis, n_models,
-                                         1, model_set_axis_input) == pivots
+                assert inputs.pivots(params, model_set_axis, n_models,
+                                     1, model_set_axis_input) == pivots
                 assert mkNew.call_args_list == \
                     [mk.call(inputs, params, model_set_axis, n_models, model_set_axis_input)]
                 assert mkInputs.call_args_list == [mk.call()]
@@ -584,8 +589,8 @@ class TestInputs:
                 mkInputs.reset_mock()
 
                 # Extension (n_inputs < n_outputs)
-                assert inputs.new_inputs(params, model_set_axis, n_models,
-                                         6, model_set_axis_input) == \
+                assert inputs.pivots(params, model_set_axis, n_models,
+                                     6, model_set_axis_input) == \
                     unmodified_pivots + [model_set_axis_input for _ in range(3)]
                 assert mkNew.call_args_list == \
                     [mk.call(inputs, params, model_set_axis, n_models, model_set_axis_input)]
@@ -714,6 +719,13 @@ class TestOptional:
             with pytest.raises(ValueError, match=f"Modeling option {name} must be set!"):
                 inputs.model_options = new_model_options
 
+    def test_default_model_set_axis(self):
+        model_set_axis = mk.MagicMock()
+        inputs = evaluation_io.Optional({'option': 2}, model_set_axis=model_set_axis)
+
+        assert inputs._model_set_axis == model_set_axis
+        assert inputs.default_model_set_axis == model_set_axis
+
     def test__get_model_option(self):
         inputs = evaluation_io.Optional({'option': 2})
         model_options = mk.MagicMock()
@@ -781,6 +793,21 @@ class TestOptional:
         inputs = evaluation_io.Optional({'option': 2}, pass_through={'pass': 7})
         assert inputs._pass_through == {'pass': 7}
         assert inputs.pass_through == {'pass': 7}
+
+    def test_validate(self):
+        # Test pass_through is empty
+        inputs = evaluation_io.Optional({'option': 2})
+        assert len(inputs.pass_through) == 0
+        inputs.validate(True)
+        inputs.validate(False)
+
+        # Test pass_through is non-empty
+        inputs = evaluation_io.Optional({'option': 2},
+                                        pass_through={'test': mk.MagicMock()})
+        assert len(inputs.pass_through) > 0
+        inputs.validate(True)
+        with pytest.raises(RuntimeError):
+            inputs.validate(False)
 
 
 class TestInputData:
@@ -987,22 +1014,22 @@ class TestEvaluationInputs:
 
         with mk.patch.object(evaluation_io.Inputs, 'broadcast',
                              autospec=True) as mkBroadcast:
-            with mk.patch.object(evaluation_io.Inputs, 'new_inputs',
-                                 autospec=True) as mkNew:
+            with mk.patch.object(evaluation_io.Inputs, 'pivots',
+                                 autospec=True) as mkPivots:
                 assert evaluation.format_info == []
                 evaluation.set_format_info(params, standard_broadcasting, 1,
                                            model_set_axis, n_outputs)
                 assert evaluation.format_info == mkBroadcast.return_value
                 assert mkBroadcast.call_args_list == \
                     [mk.call(inputs, params, standard_broadcasting, n_outputs)]
-                assert mkNew.call_args_list == []
+                assert mkPivots.call_args_list == []
                 mkBroadcast.reset_mock()
 
                 evaluation.set_format_info(params, standard_broadcasting, 2,
                                            model_set_axis, n_outputs)
-                assert evaluation.format_info == mkNew.return_value
+                assert evaluation.format_info == mkPivots.return_value
                 assert mkBroadcast.call_args_list == []
-                assert mkNew.call_args_list == \
+                assert mkPivots.call_args_list == \
                     [mk.call(inputs, params, model_set_axis, 2, n_outputs,
                              optional.model_set_axis)]
 
@@ -1562,6 +1589,31 @@ class TestInputMetaDataEntry:
         # test pass bad input
         with pytest.raises(ValueError):
             evaluation_io.InputMetaDataEntry.create_entry(mk.MagicMock())
+
+    def test_create_input(self):
+        entry = evaluation_io.InputMetaDataEntry('test', 1)
+
+        base_args = [mk.MagicMock(), mk.MagicMock()]
+        base_kwargs = {'thing': mk.MagicMock()}
+        with mk.patch.object(evaluation_io.InputMetaDataEntry, '_create_io_entry',
+                             autospec=True) as mkCreate:
+            # Is a kwarg
+            args = tuple(base_args)
+            kwargs = base_kwargs.copy()
+            kwargs['test'] = mk.MagicMock()
+            assert entry.create_input(*args, **kwargs) == \
+                (mkCreate.return_value, args)
+            assert mkCreate.call_args_list == \
+                [mk.call(entry, kwargs['test'])]
+            mkCreate.reset_mock()
+
+            # Is not kwarg
+            args = tuple(base_args)
+            kwargs = base_kwargs.copy()
+            assert entry.create_input(*args, **kwargs) == \
+                (mkCreate.return_value, (base_args[1],))
+            assert mkCreate.call_args_list == \
+                [mk.call(entry, base_args[0])]
 
     def test__outside(self):
         entries = {f'x{idx}': evaluation_io.InputEntry(f'x{idx}', mk.MagicMock()) for idx in range(3)}
@@ -2158,35 +2210,29 @@ class TestOptionalMetaData:
             assert optional.name == name
             assert optional.default is None
 
-    def test__fill_model_options(self):
+    def test__get__model_options(self):
         meta_data = evaluation_io.OptionalMetaData.create_defaults(1)
+        model_set_axis = mk.MagicMock()
+        meta_data.model_set_axis = model_set_axis
 
         # No optionals and no kwargs
         input_kwargs = {}
         optional = {}
 
-        options, model_options, new_kwargs = meta_data._get_model_options(optional)
-        assert options == {}
-        assert model_options == evaluation_io.modeling_options
-        assert new_kwargs == {}
-        options, model_options, new_kwargs = meta_data._get_model_options(optional, **input_kwargs)
-        assert options == {}
-        assert model_options == evaluation_io.modeling_options
-        assert new_kwargs == {}
+        true_optional = evaluation_io.Optional({}, model_set_axis=model_set_axis)
+        assert meta_data._get_model_options(optional) == true_optional
+        assert meta_data._get_model_options(optional, **input_kwargs) == \
+            true_optional
 
         # Optional with no model options and no kwargs
         for index in range(3):
             key = f'z{index}'
             optional[key] = mk.MagicMock()
+            true_optional = evaluation_io.Optional(optional, model_set_axis=model_set_axis)
 
-            options, model_options, new_kwargs = meta_data._get_model_options(optional)
-            assert options == optional
-            assert model_options == evaluation_io.modeling_options
-            assert new_kwargs == {}
-            options, model_options, new_kwargs = meta_data._get_model_options(optional, **input_kwargs)
-            assert options == optional
-            assert model_options == evaluation_io.modeling_options
-            assert new_kwargs == {}
+            assert meta_data._get_model_options(optional) == true_optional
+            assert meta_data._get_model_options(optional, **input_kwargs) == \
+                true_optional
 
         true_options = optional.copy()
         true_model_options = evaluation_io.modeling_options.copy()
@@ -2194,27 +2240,27 @@ class TestOptionalMetaData:
         for index, key in enumerate(evaluation_io.modeling_options):
             optional[key] = mk.MagicMock()
             true_model_options[key] = optional[key]
+            true_optional = evaluation_io.Optional(true_options,
+                                                   true_model_options,
+                                                   model_set_axis=model_set_axis)
 
-            options, model_options, new_kwargs = meta_data._get_model_options(optional)
-            assert options == true_options
-            assert model_options == true_model_options
-            assert new_kwargs == {}
+            assert meta_data._get_model_options(optional) == true_optional
             assert len(optional) == index + 4
-            options, model_options, new_kwargs = meta_data._get_model_options(optional, **input_kwargs)
-            assert options == true_options
-            assert model_options == true_model_options
-            assert new_kwargs == {}
+            assert meta_data._get_model_options(optional, **input_kwargs) == \
+                true_optional
             assert len(optional) == index + 4
 
         # Optional with model options and disjoint kwargs
         for index in range(3):
             key = f'a{index}'
             input_kwargs[key] = mk.MagicMock
+            true_optional = evaluation_io.Optional(true_options,
+                                                   true_model_options,
+                                                   input_kwargs,
+                                                   model_set_axis=model_set_axis)
 
-            options, model_options, new_kwargs = meta_data._get_model_options(optional, **input_kwargs)
-            assert options == true_options
-            assert model_options == true_model_options
-            assert new_kwargs == input_kwargs
+            assert meta_data._get_model_options(optional, **input_kwargs) == \
+                true_optional
             assert len(optional) == 3 + len(evaluation_io.modeling_options)
 
         optional = true_options.copy()
@@ -2224,67 +2270,36 @@ class TestOptionalMetaData:
         for index, key in enumerate(evaluation_io.modeling_options):
             input_kwargs[key] = mk.MagicMock()
             true_model_options[key] = input_kwargs[key]
+            true_optional = evaluation_io.Optional(true_options,
+                                                   true_model_options,
+                                                   true_kwargs,
+                                                   model_set_axis=model_set_axis)
 
-            options, model_options, new_kwargs = meta_data._get_model_options(optional, **input_kwargs)
-            assert options == true_options
-            assert model_options == true_model_options
-            assert new_kwargs == true_kwargs
+            assert meta_data._get_model_options(optional, **input_kwargs) == \
+                true_optional
             assert len(optional) == 3
 
     def test_get_optional(self):
         meta_data = evaluation_io.OptionalMetaData.create_defaults(1)
-        model_set_axis = mk.MagicMock()
-        meta_data.model_set_axis = model_set_axis
+        pass_optional = mk.MagicMock()
+        meta_data.pass_optional = pass_optional
         kwargs = {'test': mk.MagicMock()}
 
-        modeling_options = {name: mk.MagicMock() for name in evaluation_io.modeling_options}
-        get_return = (mk.MagicMock(), {'test': mk.MagicMock()})
-        optional_effects = [
-            (mk.MagicMock(), modeling_options, {'test': mk.MagicMock()}),
-            (mk.MagicMock(), modeling_options, {}),
-            (mk.MagicMock(), modeling_options, {'test': mk.MagicMock()}),
-        ]
+        get_return = (mk.MagicMock(), {'other': mk.MagicMock()})
+        options_return = evaluation_io.Optional(mk.MagicMock())
         with mk.patch.object(evaluation_io.OptionalMetaData, 'get_from_kwargs',
                              autospec=True, return_value=get_return) as mkGet:
             with mk.patch.object(evaluation_io.OptionalMetaData, '_get_model_options',
-                                 autospec=True, side_effect=optional_effects) as mkOptions:
-                # Pass optional is True
-                meta_data.pass_optional = True
-                optional = meta_data.get_optional(**kwargs)
-                assert isinstance(optional, evaluation_io.Optional)
-                assert optional.optional      == optional_effects[0][0]
-                assert optional.model_options == optional_effects[0][1]
-                assert optional.pass_through  == optional_effects[0][2]
-                assert optional._model_set_axis == model_set_axis
-                assert mkOptions.call_args_list == \
-                    [mk.call(meta_data, get_return[0], **get_return[1])]
-                assert mkGet.call_args_list == \
-                    [mk.call(meta_data, **kwargs)]
-                mkOptions.reset_mock()
-                mkGet.reset_mock()
-
-                # Pass optional is false, but no extra options
-                meta_data.pass_optional = False
-                optional = meta_data.get_optional(**kwargs)
-                assert isinstance(optional, evaluation_io.Optional)
-                assert optional.optional      == optional_effects[1][0]
-                assert optional.model_options == optional_effects[1][1]
-                assert optional.pass_through  == optional_effects[1][2]
-                assert optional._model_set_axis == model_set_axis
-                assert mkOptions.call_args_list == \
-                    [mk.call(meta_data, get_return[0], **get_return[1])]
-                assert mkGet.call_args_list == \
-                    [mk.call(meta_data, **kwargs)]
-                mkOptions.reset_mock()
-                mkGet.reset_mock()
-
-                # Pass optional is false and extra options
-                with pytest.raises(RuntimeError):
-                    meta_data.get_optional( **kwargs)
-                assert mkOptions.call_args_list == \
-                    [mk.call(meta_data, get_return[0], **get_return[1])]
-                assert mkGet.call_args_list == \
-                    [mk.call(meta_data, **kwargs)]
+                                 autospec=True, return_value=options_return) as mkOptions:
+                with mk.patch.object(evaluation_io.Optional, 'validate',
+                                     autospec=True) as mkValidate:
+                    assert meta_data.get_optional(**kwargs) == options_return
+                    assert mkOptions.call_args_list == \
+                        [mk.call(meta_data, get_return[0], **get_return[1])]
+                    assert mkGet.call_args_list == \
+                        [mk.call(meta_data, **kwargs)]
+                    assert mkValidate.call_args_list == \
+                        [mk.call(options_return, pass_optional)]
 
 
 class TestOutputMetaDataEntry:

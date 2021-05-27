@@ -227,11 +227,6 @@ class InputEntry(IoEntry):
         Returns
         -------
             The broadcast shape of this input for the model.
-
-        Notes
-        -----
-        This is used to generate the format_info for the inputs, which
-        will be used to generate the post-evaluation output shapes.
         """
         # NOTE: this method is for replacing _prepare_inputs_single_model
 
@@ -248,9 +243,17 @@ class InputEntry(IoEntry):
     @staticmethod
     def _remove_axes_from_shape(shape: tuple, axis: int) -> tuple:
         """
-        Given a shape tuple as the first input, construct a new one by  removing
-        that particular axis from the shape and all preceding axes. Negative axis
-        numbers are permitted, where the axis is relative to the last axis.
+        Helper function for self._get_param_shape
+            Given a shape tuple as the first input, construct a new one by  removing
+            that particular axis from the shape and all preceding axes. Negative axis
+            numbers are permitted, where the axis is relative to the last axis.
+
+        Parameters
+        ----------
+        shape : tuple
+            The shape of the parameter
+        axis : int
+            The axis to reshape parameter around
         """
         if len(shape) == 0:
             return shape
@@ -265,12 +268,48 @@ class InputEntry(IoEntry):
         return shape[axis+1:]
 
     def _get_param_shape(self, input_shape: tuple, param, model_set_axis: int) -> tuple:
+        """
+        Helper function for self._update_max_param_shape
+            Gets the shape of the input relative to param
+
+        Parameters
+        ----------
+        input_shape : int
+            The shape of the input within the model set
+        param :
+            A model parameter
+        model_set_axis : int
+            The default model_set_axis
+
+        Returns
+        -------
+        The shape of the input relative to param
+        """
         param_shape = self._remove_axes_from_shape(param.shape, model_set_axis)
         self._check_broadcast(input_shape, param, param_shape)
 
         return param_shape
 
     def _update_max_param_shape(self, max_param_shape: tuple, input_shape: tuple, param, model_set_axis: int) -> tuple:
+        """
+        Helper function for self._max_param_shape
+            Update's the max_param_shape with respect to the current parameter
+
+        Parameters
+        ----------
+        max_param_shape : tuple
+            The current max_param_shape
+        input_shape : int
+            The shape of the input within the model set
+        param :
+            A model parameter
+        model_set_axis : int
+            The default model_set_axis
+
+        Returns
+        -------
+        The maximum parameter shape for this input relative to param
+        """
         param_shape = self._get_param_shape(input_shape, param, model_set_axis)
         if len(param.shape) - 1 > len(max_param_shape):
             max_param_shape = param_shape
@@ -278,6 +317,24 @@ class InputEntry(IoEntry):
         return max_param_shape
 
     def _max_param_shape(self, input_shape: tuple, params: list, model_set_axis: int) -> tuple:
+        """
+        Helper function for self.new_input
+            Finds the maximum shape of this input vs the parameters
+
+        Parameters
+        ----------
+        input_shape : int
+            The shape of the input within the model set
+        params : list
+            A list of all the model's parameter to get this evaluation
+            input's broadcast shape in relation to.
+        model_set_axis : int
+            The default model_set_axis
+
+        Returns
+        -------
+        The maximum parameter shape for this input.
+        """
         max_param_shape = ()
         for param in params:
             max_param_shape = self._update_max_param_shape(max_param_shape, input_shape, param, model_set_axis)
@@ -285,6 +342,27 @@ class InputEntry(IoEntry):
         return max_param_shape
 
     def _new_input_no_axis(self, input_ndim: int, max_param_shape: tuple, model_set_axis: int) -> Tuple[np.ndarray, int]:
+        """
+        Helper function for self._new_input_value
+            Adjust the input's internal array to be compatible with model set,
+            when user no user supplied model_set_axis.
+
+        Parameters
+        ----------
+        input_ndim : int
+            Number of input dimensions
+        max_param_shape : tuple
+            The compatible broadcast shape of the model set
+        model_set_axis : int
+            The default model_set_axis
+
+        Returns
+        -------
+        tuple(
+            new input array value,
+            pivot value
+        )
+        """
         if len(max_param_shape) > input_ndim:
             n_new_axes = 1 + len(max_param_shape) - input_ndim
             new_axes = (1,) * n_new_axes
@@ -299,6 +377,29 @@ class InputEntry(IoEntry):
 
     def _new_input_axis(self, input_ndim: int, max_param_shape: tuple,
                         model_set_axis: int, model_set_axis_input: int) -> Tuple[np.ndarray, int]:
+        """
+        Helper function for self._new_input_value
+            Adjust the input's internal array to be compatible with model set,
+            when user supplied model_set_axis is given
+
+        Parameters
+        ----------
+        input_ndim : int
+            Number of input dimensions
+        max_param_shape : tuple
+            The compatible broadcast shape of the model set
+        model_set_axis : int
+            The default model_set_axis
+        model_set_axis_input : int
+            The model_set_axis passed in at evaluation
+
+        Returns
+        -------
+        tuple(
+            new input array value,
+            pivot value
+        )
+        """
         if len(max_param_shape) >= input_ndim:
             n_new_axes = len(max_param_shape) - input_ndim
             pivot = model_set_axis
@@ -313,9 +414,30 @@ class InputEntry(IoEntry):
 
         return new_input, pivot
 
-    def _new_input(self, input_ndim: int, max_param_shape: tuple,
+    def _new_input_value(self, input_ndim: int, max_param_shape: tuple,
                    model_set_axis: int, model_set_axis_input: int) -> Tuple[np.ndarray, int]:
+        """
+        Helper function for self.new_input
+            Adjust the input's internal array to be compatible with model set
 
+        Parameters
+        ----------
+        input_ndim : int
+            Number of input dimensions
+        max_param_shape : tuple
+            The compatible broadcast shape of the model set
+        model_set_axis : int
+            The default model_set_axis
+        model_set_axis_input : int
+            The model_set_axis passed in at evaluation
+
+        Returns
+        -------
+        tuple(
+            new input array value,
+            pivot value
+        )
+        """
         if model_set_axis_input is False:
             return self._new_input_no_axis(input_ndim, max_param_shape,
                                            model_set_axis)
@@ -324,6 +446,21 @@ class InputEntry(IoEntry):
                                         model_set_axis, model_set_axis_input)
 
     def _get_input_shape(self, n_models: int, model_set_axis_input: int) -> tuple:
+        """
+        Helper function for self.new_input
+            Gets the shape of this input relative to the model set
+
+        Parameters
+        ----------
+        n_models : int
+            The number of models in the model set
+        model_set_axis_input : int
+            The model_set_axis passed in at evaluation
+
+        Returns
+        -------
+        The input's shape in the model set.
+        """
         if n_models > 1 and model_set_axis_input is not False:
             return (self.shape[:model_set_axis_input] +
                     self.shape[model_set_axis_input + 1:])
@@ -332,13 +469,35 @@ class InputEntry(IoEntry):
 
     def new_input(self, params: list, model_set_axis: int,
                   n_models: int, model_set_axis_input: int) -> Tuple['InputEntry', int]:
+        """
+        Creates a new version of this input and a pivot when evaluating a model set.
+
+        Parameters
+        ----------
+        params : list
+            A list of all the model's parameter to get this evaluation
+            input's broadcast shape in relation to.
+        model_set_axis : int
+            The default model_set_axis
+        n_models : int
+            The number of models in the model set
+        model_set_axis_input : int
+            The model_set_axis passed in at evaluation
+
+        Returns
+        -------
+        tuple(
+            New InputEntry adjusted to the model set,
+            The pivot of that entry.
+        )
+        """
         input_shape = self._get_input_shape(n_models, model_set_axis_input)
         max_param_shape = self._max_param_shape(input_shape, params, model_set_axis)
 
-        new_input, pivot = self._new_input(len(input_shape), max_param_shape,
-                                           model_set_axis, model_set_axis_input)
+        input_value, pivot = self._new_input_value(len(input_shape), max_param_shape,
+                                                   model_set_axis, model_set_axis_input)
 
-        return InputEntry(self.name, new_input), pivot
+        return InputEntry(self.name, input_value), pivot
 
     def reduce_to_bounding_box(self, valid_index) -> 'InputEntry':
         """
@@ -469,7 +628,7 @@ class Inputs(object):
 
     def broadcast(self, params: list, standard_broadcasting: bool, n_outputs: int) -> list:
         """
-        Creates all the broadcast information and stores it in self._broadcast_info
+        Creates all the broadcast information.
             This method is for replacing _prepare_inputs_single_model
 
         Parameters
@@ -481,10 +640,6 @@ class Inputs(object):
             Whether or not standard_broadcasting is used by the model.
         n_outputs : int
             Number of outputs of the model being evaluated.
-
-        Notes
-        -----
-        This is the only way to set the broadcast_info for inputs.
         """
         # NOTE: this method is for replacing _prepare_inputs_single_model
 
@@ -495,17 +650,59 @@ class Inputs(object):
 
     def _new_inputs(self, params: list, model_set_axis: int,
                     n_models: int, model_set_axis_input: int) -> list:
+        """
+        Helper function for self.pivots.
+            Creates the pivot information for just the inputs, while
+            adjusting the inputs for the model set.
+
+        Parameters
+        ----------
+        params : list
+            A list of all the model's parameter to get this evaluation
+            input's broadcast shape in relation to.
+        model_set_axis : int
+            The default model_set_axis
+        n_models : int
+            The number of models in the model set
+        model_set_axis_input : int
+            The model_set_axis passed in at evaluation
+
+        Returns
+        -------
+        The pivot information from just the inputs
+        """
         pivots = []
         for name, _input in self._inputs.items():
-            new_input, pivot = _input.new_input(params, model_set_axis,
+            self._inputs[name], pivot = _input.new_input(params, model_set_axis,
                                                 n_models, model_set_axis_input)
-            self._inputs[name] = new_input
             pivots.append(pivot)
 
         return pivots
 
-    def new_inputs(self, params: list, model_set_axis: int, n_models: int,
+    def pivots(self, params: list, model_set_axis: int, n_models: int,
                    n_outputs: int, model_set_axis_input: int) -> list:
+        """
+        Creates all the pivot information.
+            This method is for replacing _prepare_inputs_model_set
+
+        Parameters
+        ----------
+        params : list
+            A list of all the model's parameter to get this evaluation
+            input's broadcast shape in relation to.
+        model_set_axis : int
+            The default model_set_axis
+        n_models : int
+            The number of models in the model set
+        n_outputs : int
+            Number of outputs of the model being evaluated.
+        model_set_axis_input : int
+            The model_set_axis passed in at evaluation
+
+        Returns
+        -------
+        The pivot information
+        """
         pivots = self._new_inputs(params, model_set_axis, n_models, model_set_axis_input)
         if self.n_inputs < n_outputs:
             pivots.extend([model_set_axis_input] * (n_outputs - self.n_inputs))
@@ -527,7 +724,7 @@ class Inputs(object):
 
         Returns
         -------
-        A new set of OldInputs which have been adjusted
+        A new set of Inputs which have been adjusted
         """
         inputs = {name: _input.reduce_to_bounding_box(valid_index)
                   for name, _input in self._inputs.items()}
@@ -550,7 +747,7 @@ class Inputs(object):
 
         Returns
         -------
-        A new set of OldInputs which have been adjusted
+        A new set of Inputs which have been adjusted
         """
         # if not all inputs are not in bounding box, adjust them
         if all_out:
@@ -574,7 +771,7 @@ class Optional(object):
             return (self.optional == this.optional) and \
                 (self.model_options == this.model_options) and \
                 (self.pass_through == this.pass_through) and \
-                (self.model_set_axis == this.model_set_axis)
+                (self.default_model_set_axis == this.default_model_set_axis)
         else:
             return False
 
@@ -598,6 +795,10 @@ class Optional(object):
         else:
             self._model_options = value
 
+    @property
+    def default_model_set_axis(self) -> int:
+        return self._model_set_axis
+
     def _get_model_option(self, name: str):
         """
         Get a modeling_option by name.
@@ -608,7 +809,7 @@ class Optional(object):
             raise RuntimeError(f'Option "{name}" must be set!')
 
     @property
-    def model_set_axis(self):
+    def model_set_axis(self) -> int:
         value = self._get_model_option('model_set_axis')
         if value is None:
             return self._model_set_axis
@@ -634,6 +835,20 @@ class Optional(object):
     @property
     def pass_through(self) -> dict:
         return self._pass_through
+
+    def validate(self, pass_optional: bool):
+        """
+        Validates if the Optional arguments fit with passing optional
+        arguments or not.
+
+        Parameters
+        ----------
+        pass_optional : bool
+            Whether or not, undefined optional arguments will be passed.
+        """
+        if (not pass_optional) and (len(self.pass_through) > 0):
+            raise RuntimeError(f'Unknown optional arguments: {self.pass_through.keys()} ' +
+                               'have been passed, argument pass through is off.')
 
 
 class InputData(object):
@@ -735,22 +950,73 @@ class EvaluationInputs(object):
         self._data.format_info = value
 
     def check_input_shape(self, n_models: int):
+        """
+        Validates the inputs all have compatible shapes
+
+        Parameters
+        ----------
+        n_models : int
+            The number of models in the model set.
+        """
         self._inputs.check_input_shape(n_models, self._optional.model_set_axis, False)
 
     @classmethod
     def evaluation_inputs(cls, inputs: Inputs, optional: Optional) -> 'EvaluationInputs':
+        """
+        Construct an EvaluationInputs object, where the input data is empty.
+
+        Parameters
+        ----------
+        inputs : Inputs
+            The wrapped user required inputs
+        optional: Optional
+            The wrapped user optional inputs
+
+        Returns
+        -------
+        An EvaluationInputs inputs object with empty input data.
+        """
         return cls(inputs, optional, InputData())
 
     def set_format_info(self, params: list, standard_broadcasting: bool,
                         n_models: int, model_set_axis: int, n_outputs: int):
+        """
+        Creates and sets the format_info for the EvaluationInputs
+
+        Parameters
+        ----------
+        params : list
+            A list of all the model's parameter to get this evaluation
+            input's broadcast shape in relation to.
+        standard_broadcasting : bool
+            If model uses standard numpy broadcasting
+        n_models : int
+            The number of models in the model set.
+        model_set_axis : int
+            The default model_set_axis for the model
+        n_outputs : int
+            The number of expected outputs
+        """
         if n_models == 1:
             format_info = self._inputs.broadcast(params, standard_broadcasting, n_outputs)
         else:
-            format_info = self._inputs.new_inputs(params, model_set_axis, n_models, n_outputs,
-                                                  self._optional.model_set_axis)
+            format_info = self._inputs.pivots(params, model_set_axis, n_models, n_outputs,
+                                              self._optional.model_set_axis)
         self.format_info = format_info
 
     def reduce_to_bounding_box(self, valid_index, all_out: bool):
+        """
+        Reduce the inputs in this object down to just those in the bounding_box,
+        and record where valid indices are located.
+
+        Parameters
+        ----------
+        valid_index : Tuple[np.ndarray, ...]
+            The indices of this input found to be corrisponding to points
+            within the bounding box of the model
+        all_out : bool
+            If all the indices will be used
+        """
         self.inputs = self._inputs.reduce_to_bounding_box(valid_index, all_out)
         self.data = self._data.reduce_to_bounding_box(valid_index, all_out)
 
@@ -878,12 +1144,41 @@ class IoMetaDataEntry(object):
         raise NotImplementedError('IoMetaDataEntry does not implement this!')
 
     def _create_io_entry(self, value):
+        """
+        Helper function for self.get_from_kwargs and InputMetaData.create_input
+            Attempts to Wrap the input value in the right evaluation entry wrapper.
+
+        Parameters
+        ----------
+        value :
+            The users input value to wrap
+
+        Returns
+        -------
+            The input value correctly wrapped.
+        """
         if self._data_entry is None or isinstance(value, self._data_entry):
             return value
         else:
             return self._data_entry(self.name, value)
 
     def get_from_kwargs(self, data_kwargs: dict, **kwargs) -> dict:
+        """
+        If the evaluation input described is present in the kwargs,
+        it is extracted and wrapped from the kwargs and added to a dictionary.
+
+        Parameters
+        ----------
+        data_kwargs : dict
+            The dictionary to add the input to if it is present.
+        **kwargs :
+            The remaining set of kwargs passed as evaluation inputs by
+            the user
+
+        Returns
+        -------
+        The kwargs without the entry described by this object.
+        """
         if self.name in kwargs:
             data_kwargs[self.name] = self._create_io_entry(kwargs[self.name])
             del kwargs[self.name]
@@ -893,6 +1188,7 @@ class IoMetaDataEntry(object):
 
 class IoMetaData(object):
     _data_entry = None
+
     def __init__(self, data: dict = None, **kwargs):
         self._data = {}
 
@@ -1068,17 +1364,53 @@ class InputMetaDataEntry(IoMetaDataEntry):
         else:
             raise ValueError(f'{input_value} is not a valid way to set an input')
 
-    def create_input(self, inputs: Dict[str, InputEntry], *args, **kwargs) -> tuple:
+    def create_input(self, *args, **kwargs) -> Tuple[InputEntry, tuple]:
+        """
+        Creates an InputEntry object for the input described by this set of
+        meta data and then adds that entry to a dictionary under the name of
+        the input.
+
+        Parameters
+        ----------
+        *args :
+            The positional arguments passed to model for evaluation
+        **kwargs :
+            The required arguments passed to the model as kwargs for
+            evaluation
+
+        Returns
+        -------
+        tuple(
+            The users inputs wrapped in an Inputs object,
+            Tuple of remaining positional arguments.
+        )
+        """
         args = list(args)
         if self.name in kwargs:
             value = self._create_io_entry(kwargs[self.name])
         else:
             value = self._create_io_entry(args.pop(0))
-        inputs[self.name] = value
 
-        return tuple(args)
+        return value, tuple(args)
 
     def _outside(self, inputs: EvaluationInputs) -> Tuple[np.ndarray, tuple]:
+        """
+        Helper function for self.update_outside.
+            Get the boolean array of where the input for this entry is
+            outside its bounding_box
+
+        Parameters
+        ----------
+        inputs : EvaluationInputs
+            The processed evaluation inputs
+
+        Returns
+        -------
+        tuple(
+            The array booleans indicating positions outside bounding_box,
+            shape of input
+        )
+        """
         if self.name in inputs.inputs.inputs:
             value = inputs.inputs.inputs[self.name].input_array
 
@@ -1088,6 +1420,26 @@ class InputMetaDataEntry(IoMetaDataEntry):
 
     def update_outside(self, outside: np.ndarray, all_out: bool,
                        inputs: EvaluationInputs) -> Tuple[np.ndarray, bool]:
+        """
+        Updates array of outside positions based on the data from this entry
+
+        Parameters
+        ----------
+        outside : bool np.ndarray
+            Array of booleans indicating which positions are outside the
+            bounding_box
+        all_out : bool
+            If all the input positions will be used
+        inputs : EvaluationInputs
+            The processed evaluation inputs
+
+        Returns
+        -------
+        tuple(
+            Updated outside array,
+            If all the input positions are inside the box
+        )
+        """
         update = outside.copy()
 
         current, shape = self._outside(inputs)
@@ -1204,7 +1556,7 @@ class InputMetaData(IoMetaData):
 
     def _check_inputs(self, *args, **kwargs):
         """
-        Helper function for self._get_inputs
+        Helper function for self.get_inputs
             Performs basic consistency check on model evaluation arguments
 
         Parameters
@@ -1223,8 +1575,10 @@ class InputMetaData(IoMetaData):
 
     def _create_inputs(self, *args, **kwargs) -> Inputs:
         """
-        Helper function for self._get_inputs
-            Turns user evaluation inputs into InputEntry objects
+        Helper function for self.get_inputs
+            Turns user evaluation inputs into Input object. This is accomplished
+            by extracting the InputEntry object for each required input. These
+            objects are then turned into a complete Inputs object.
 
         Parameters
         ----------
@@ -1236,19 +1590,18 @@ class InputMetaData(IoMetaData):
 
         Returns
         -------
-        Dictionary of input arguments
+        The users inputs wrapped in an Inputs object
         """
         inputs = {}
-        for _input in self._data.values():
-            args = _input.create_input(inputs, *args, **kwargs)
+        for name, _input in self._data.items():
+            inputs[name], args = _input.create_input(*args, **kwargs)
 
         return Inputs(inputs)
 
     def get_inputs(self, *args, **kwargs) -> Tuple[Inputs, dict]:
         """
-        Helper function for self.evaluation_inputs
-            Performs all the steps necessary to check and create all the InputEntry
-            objects
+        Performs extracts the Inputs object from the user supplied
+        evaluation arguments.
 
         Parameters
         ----------
@@ -1260,9 +1613,14 @@ class InputMetaData(IoMetaData):
         Returns
         -------
         tuple(
-            Dictionary of input arguments,
+            Inputs object
             kwargs with no required inputs included
         )
+
+        Notes
+        -----
+        Performs a basic consistency check of the user supplied evaluation
+        inputs while generation of the Inputs Object
         """
         input_kwargs, kwargs = self.get_from_kwargs(**kwargs)
         self._check_inputs(*args, **input_kwargs)
@@ -1302,7 +1660,7 @@ class InputMetaData(IoMetaData):
     def _get_valid_index(self, n_models: int, model_set_axis: int, inputs: EvaluationInputs) \
             -> Tuple[Tuple[np.ndarray, ...], bool]:
         """
-        Helper function for self.bounding_box_inputs
+        Helper function for self.enforce_bounding_box
             Generates the list of valid indices for the input arrays
 
         Parameters
@@ -1330,18 +1688,14 @@ class InputMetaData(IoMetaData):
 
     def enforce_bounding_box(self, n_models: int, model_set_axis: int, inputs: EvaluationInputs):
         """
-        Creates an OldInputs object whose values are all inside the bounding box
+        Updates the EvaluationInputs object so that its values are all inside the bounding box
 
         Parameters
         ----------
         n_models: int
             The number of models
-        inputs : OldInputs
+        inputs : EvaluationInputs
             The processed evaluation inputs object
-
-        Returns
-        -------
-        new inputs object with only inputs inside bounding box
         """
         # NOTE: this is to replace prepare_bounding_box_inputs
         if inputs.optional.with_bounding_box:
@@ -1455,25 +1809,21 @@ class OptionalMetaData(IoMetaData):
     def optional(self, value):
         self.data = value
 
-    def _get_model_options(self, optional: dict, **kwargs) -> Tuple[dict, dict, dict]:
+    def _get_model_options(self, optional: dict, **kwargs) -> Optional:
         """
-        Helper function for self._get_options
+        Helper function for self.get_options
             Fills in all the optional inputs
 
         Parameters
         ----------
         optional : dict
-            The optional inputs
+            The optional inputs described by this object
         kwargs :
             User's kwargs with the required inputs and optional removed
 
         Returns
         -------
-        tuple(
-            Dictionary of optional inputs (no modeling options),
-            modeling options,
-            kwargs with required, optional inputs, and modeling options removed.
-        )
+        The Optional inputs object
 
         Notes
         -----
@@ -1492,10 +1842,9 @@ class OptionalMetaData(IoMetaData):
                 del kwargs[name]
             else:
                 value = default
-
             model_options[name] = value
 
-        return options, model_options, kwargs
+        return Optional(options, model_options, kwargs, self._model_set_axis)
 
     def get_optional(self, **kwargs) -> Optional:
         """
@@ -1521,13 +1870,10 @@ class OptionalMetaData(IoMetaData):
         are any unaccounted for kwargs.
         """
         optional, kwargs = self.get_from_kwargs(**kwargs)
-        optional, model_options, pass_through = self._get_model_options(optional, **kwargs)
+        options = self._get_model_options(optional, **kwargs)
+        options.validate(self.pass_optional)
 
-        if (not self.pass_optional) and (len(pass_through) > 0):
-            raise RuntimeError(f'Unknown optional arguments: {kwargs.keys()} ' +
-                               'have been passed, argument pass through is off.')
-
-        return Optional(optional, model_options, pass_through, self._model_set_axis)
+        return options
 
 
 class OutputMetaDataEntry(IoMetaDataEntry):
@@ -1723,7 +2069,7 @@ class MetaData(object):
 
     def evaluation_inputs(self, *args, **kwargs) -> EvaluationInputs:
         """
-        Turn the user's evaluation inputs to a model into an OldInputs object
+        Turn the user's evaluation inputs to a model into an EvaluationInputs object
 
         Parameters
         ----------
@@ -1742,13 +2088,47 @@ class MetaData(object):
         return EvaluationInputs.evaluation_inputs(inputs, optional)
 
     def set_format_info(self, params: list, inputs: EvaluationInputs):
+        """
+        Sets the format_info for the EvaluationInputs object.
+
+        Parameters
+        ----------
+        params : list
+            A list of all the model's parameter to get this evaluation
+            input's broadcast shape in relation to.
+        inputs : EvaluationInputs
+            The wrapped user inputs.
+        """
         inputs.set_format_info(params, self.standard_broadcasting,
                                self.n_models, self.model_set_axis, self.n_outputs)
 
     def enforce_bounding_box(self, inputs: EvaluationInputs):
+        """
+        Enforces the bounding_box on EvaluationInputs
+
+        Parameters
+        ----------
+        inputs : EvaluationInputs
+            The wrapped user inputs.
+        """
         self._inputs.enforce_bounding_box(self.n_models, self.model_set_axis, inputs)
 
     def process_inputs(self, params: list, inputs: EvaluationInputs):
+        """
+        Process the EvaluationInputs object in light of the meta_data:
+            Checks input shapes
+            Generates the internal format data for inputs
+            Enforces units (if needed)
+            Enforces bounding_box (if needed)
+
+        Parameters
+        ----------
+        params : list
+            A list of all the model's parameter to get this evaluation
+            input's broadcast shape in relation to.
+        inputs : EvaluationInputs
+            The wrapped user inputs.
+        """
         inputs.check_input_shape(self.n_models)
         # TODO: enforce units.
 
