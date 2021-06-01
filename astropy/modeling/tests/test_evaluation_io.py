@@ -426,6 +426,18 @@ class TestInputs:
         assert inputs._inputs == {'test': evaluation_io.InputEntry('test', 1)}
         assert inputs.inputs == {'test': evaluation_io.InputEntry('test', 1)}
 
+    def test_values(self):
+        inputs = evaluation_io.Inputs({'test': evaluation_io.InputEntry('test', 1),
+                                       'next': evaluation_io.InputEntry('next', 2)})
+
+        input_arrays = [mk.MagicMock(), mk.MagicMock()]
+        with mk.patch.object(evaluation_io.InputEntry, 'input_array',
+                             new_callable=mk.PropertyMock) as mkInput:
+            mkInput.side_effect = input_arrays
+
+            assert inputs.values == input_arrays
+            assert mkInput.call_args_list == [mk.call(), mk.call()]
+
     def test_n_inputs(self):
         inputs = evaluation_io.Inputs({'test': evaluation_io.InputEntry('test', 1)})
         assert inputs.n_inputs == 1
@@ -698,6 +710,10 @@ class TestOptional:
         inputs = evaluation_io.Optional({'option': 2})
         assert inputs._optional == {'option': 2}
         assert inputs.optional == {'option': 2}
+
+    def test_values(self):
+        inputs = evaluation_io.Optional({'option': 2, 'other': 4})
+        assert inputs.values == [2, 4]
 
     def test_model_options(self):
         inputs = evaluation_io.Optional({'option': 2})
@@ -982,6 +998,26 @@ class TestEvaluationInputs:
         evaluation.format_info = new_format_info
         assert evaluation._data.format_info == new_format_info
         assert evaluation.format_info == new_format_info
+
+    def test_values(self):
+        inputs = evaluation_io.Inputs({'test': evaluation_io.InputEntry('test', 1)})
+        optional = evaluation_io.Optional({'option': 2})
+        data = mk.MagicMock()
+        evaluation = evaluation_io.EvaluationInputs(inputs, optional, data)
+
+        input_values = [mk.MagicMock(), mk.MagicMock()]
+        optional_values = [mk.MagicMock(), mk.MagicMock()]
+        true_values = input_values + optional_values
+        with mk.patch.object(evaluation_io.Inputs, 'values',
+                             new_callable=mk.PropertyMock) as mkInputs:
+            with mk.patch.object(evaluation_io.Optional, 'values',
+                                 new_callable=mk.PropertyMock) as mkOptional:
+                mkInputs.return_value = input_values
+                mkOptional.return_value = optional_values
+
+                assert evaluation.values == true_values
+                assert mkInputs.call_args_list == [mk.call()]
+                assert mkOptional.call_args_list == [mk.call()]
 
     def test_check_input_shape(self):
         inputs = mk.MagicMock()

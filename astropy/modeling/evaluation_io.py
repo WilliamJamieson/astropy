@@ -5,6 +5,7 @@
 import numpy as np
 from typing import Dict, List, Tuple
 from copy import deepcopy
+from itertools import chain
 
 from astropy.utils.shapes import check_broadcast, IncompatibleShapeError
 from astropy.modeling.utils import _BoundingBox
@@ -540,6 +541,10 @@ class Inputs(object):
         return self._inputs
 
     @property
+    def values(self) -> List[np.ndarray]:
+        return [entry.input_array for entry in self._inputs.values()]
+
+    @property
     def n_inputs(self) -> int:
         return len(self._inputs)
 
@@ -780,6 +785,10 @@ class Optional(object):
         return self._optional
 
     @property
+    def values(self) -> list:
+        return [value for value in self._optional.values()]
+
+    @property
     def model_options(self) -> dict:
         return self._model_options
 
@@ -948,6 +957,10 @@ class EvaluationInputs(object):
     @format_info.setter
     def format_info(self, value):
         self._data.format_info = value
+
+    @property
+    def values(self) -> list:
+        return list(chain(self._inputs.values, self._optional.values))
 
     def check_input_shape(self, n_models: int):
         """

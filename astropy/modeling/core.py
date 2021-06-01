@@ -42,7 +42,7 @@ from .utils import (combine_labels, make_binary_operator_eval,
                     _ConstraintsDict, _SpecialOperatorsDict)
 from .parameters import (Parameter, InputParameterError,
                          param_repr_oneline, _tofloat)
-from .evaluation_io import MetaData
+from .evaluation_io import MetaData, EvaluationInputs
 
 
 __all__ = ['Model', 'FittableModel', 'Fittable1DModel', 'Fittable2DModel',
@@ -912,6 +912,15 @@ class Model(metaclass=_ModelMeta):
             else:
                 super().__setattr__(attr, value)
 
+    def evaluate_model(self, inputs: EvaluationInputs):
+        if isinstance(self, CompoundModel):
+            # CompoundModels do not normally hold parameters at that level
+            parameters = ()
+        else:
+            parameters = self._param_sets(raw=True, units=True)
+
+        result = self.evaluate(*chain(inputs.values, parameters))
+
     def __call__(self, *args, **kwargs):
         """
         Evaluate this model using the given input(s) and the parameter values
@@ -920,6 +929,7 @@ class Model(metaclass=_ModelMeta):
 
         params = [getattr(self, name) for name in self.param_names]
         inputs = self._input_meta_data.prepare_inputs(params, *args, **kwargs)
+        # result = self.evaluate_model(inputs)
 
         new_args, kwargs = self._get_renamed_inputs_as_positional(*args, **kwargs)
 
@@ -4164,6 +4174,7 @@ def generic_call(self, *inputs, **kwargs):
         if valid_result_unit is not None:
             outputs = Quantity(outputs, valid_result_unit, copy=False)
     else:
+        print(inputs)
         outputs = self.evaluate(*chain(inputs, parameters))
         if self.n_outputs == 1:
             outputs = (outputs,)
