@@ -3,12 +3,16 @@
 """Evaluation IO for Models"""
 
 import numpy as np
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Union, TYPE_CHECKING
 from copy import deepcopy
 from itertools import chain
 
 from astropy.utils.shapes import check_broadcast, IncompatibleShapeError
-from astropy.modeling.utils import _BoundingBox
+from astropy.modeling.utils import _BoundingBox, _combine_equivalency_dict
+from astropy.units import UnitBase, dimensionless_unscaled, Quantity, UnitsError
+
+if TYPE_CHECKING:
+    from astropy.modeling.core import Model
 
 modeling_options = {
     'model_set_axis': None,
@@ -525,6 +529,61 @@ class InputEntry(IoEntry):
         # Always requires scalars to be arrays to work, so using input_array version
         return InputEntry(self._name, np.array(self.input_array)[valid_index])
 
+    def _convert_unit_value(self, value: Quantity, unit: UnitBase,
+                            equivalencies: dict, strict: bool):
+        # If equivalencies have been specified, we need to
+        # convert the input to the input units - this is
+        # because some equivalencies are non-linear, and
+        # we need to be sure that we evaluate the model in
+        # its own frame of reference. If input_units_strict
+        # is set, we also need to convert to the input units.
+        if len(equivalencies) > 0 or strict:
+            self._value = value.to(unit, equivalencies=equivalencies[self._name])
+
+    def _not_equivalent_error(self, name: str, value: Quantity, unit: UnitBase):
+        # We consider the following two cases separately so as
+        # to be able to raise more appropriate/nicer exceptions
+        if unit is dimensionless_unscaled:
+            raise UnitsError(f"{name}: Units of input '{self._name}', {value.unit} "
+                             f"({value.unit.physical_type}), "
+                             "could not be converted to required dimensionless input")
+        else:
+            raise UnitsError(f"{name}: Units of input '{self._name}', {value.unit} "
+                             f"({value.unit.physical_type}), could not be converted "
+                             f"to required input units of {unit} ({unit.physical_type})")
+
+    def _convert_unit(self, name: str, value: Quantity, unit: UnitBase,
+                      model: 'Model', equivalencies: dict):
+        if value.unit.is_equivalent(unit, equivalencies=equivalencies[self._name]):
+            self._convert_unit_value(value, unit, equivalencies,
+                                     model.input_units_strict[self._name])
+        else:
+            self._not_equivalent_error(name, value, unit)
+
+    def _validate_dimensionless(self, name: str, unit: UnitBase, model):
+        # If we allow dimensionless input, we add the units to the
+        # input values without conversion, otherwise we raise an
+        # exception.
+        if (not model.input_units_allow_dimensionless[self._name]) and \
+                (unit is not dimensionless_unscaled) and (unit is not None):
+            if np.any(self.value != 0):
+                raise UnitsError(f"{name}: Units of input '{self._name}', (dimensionless), "
+                                 "could not be converted to required input units of "
+                                 f"{unit} ({unit.physical_type})")
+
+    def _get_unit(self, model: 'Model') -> Union[UnitBase, None]:
+        return model.input_units.get(self._name, None)
+
+    def convert_unit(self, model: 'Model', equivalencies: dict):
+        unit = self._get_unit(model)
+
+        if (unit is not None):
+            name = model.name or model.__class__.__name__
+            if isinstance(self._value, Quantity):
+                self._convert_unit(name, self._value, unit, model, equivalencies)
+            else:
+                self._validate_dimensionless(name, unit, model)
+
 
 class Inputs(object):
     def __init__(self, inputs: Dict[str, InputEntry]):
@@ -535,6 +594,10 @@ class Inputs(object):
             return (self.inputs == this.inputs)
         else:
             return False
+
+    @property
+    def names(self) -> Tuple[str]:
+        return tuple(self._inputs.keys())
 
     @property
     def inputs(self) -> Dict[str, InputEntry]:
@@ -759,6 +822,13 @@ class Inputs(object):
             return self.copy()
         else:
             return self._reduce_to_bounding_box(valid_index)
+
+    def convert_units(self, model: 'Model', equivalencies: dict):
+
+        # We now iterate over the different inputs and make sure that their
+        # units are consistent with those specified in input_units.
+        for entry in self._inputs.values():
+            entry.convert_unit(model, equivalencies)
 
 
 class Optional(object):
@@ -1032,6 +1102,33 @@ class EvaluationInputs(object):
         """
         self.inputs = self._inputs.reduce_to_bounding_box(valid_index, all_out)
         self.data = self._data.reduce_to_bounding_box(valid_index, all_out)
+
+    def _equivalencies(self, model) -> dict:
+        # If a leaflist is provided that means this is in the context of
+        # a compound model and it is necessary to create the appropriate
+        # alias for the input coordinate name for the equivalencies dict
+        inputs_map = self._optional.inputs_map
+        equivalencies = self._optional.equivalencies
+
+        if inputs_map:
+            edict = {}
+            for mod, mapping in inputs_map:
+                if model is mod:
+                    edict[mapping[0]] = equivalencies[mapping[1]]
+        else:
+            edict = equivalencies
+
+        return edict
+
+    def _combine_equivalency_dict(self, model) -> dict:
+        return _combine_equivalency_dict(self._inputs.names,
+                                         self._equivalencies(model),
+                                         model.input_units_equivalencies)
+
+    def enforce_units(self, model):
+        if model.input_units is not None:
+            input_equivalencies = self._combine_equivalency_dict(model)
+            self._inputs.convert_units(model, input_equivalencies)
 
 
 class OutputEntry(IoEntry):
@@ -1332,10 +1429,12 @@ class InputMetaDataEntry(IoMetaDataEntry):
     """
     _data_entry = InputEntry
 
-    def __init__(self, name: str=None, pos: int=None, bounding_box: _BoundingBox=None):
+    def __init__(self, name: str=None, pos: int=None, unit: UnitBase=None,
+                 bounding_box: _BoundingBox=None):
         super().__init__(name)
 
         self._pos = pos
+        self._unit = unit
         self.bounding_box = bounding_box
 
     @property
@@ -1351,6 +1450,17 @@ class InputMetaDataEntry(IoMetaDataEntry):
             self._pos = value
         else:
             raise ValueError(f'Input {self.name} has position specified already')
+
+    @property
+    def unit(self) -> Union[UnitBase, None]:
+        return self._unit
+
+    @unit.setter
+    def unit(self, value):
+        if self._unit is not None and self._unit != dimensionless_unscaled:
+            raise ValueError(f"Cannot override existing units for input {self.name}")
+        else:
+            self._unit = value
 
     @property
     def bounding_box(self) -> _BoundingBox:
@@ -1566,6 +1676,31 @@ class InputMetaData(IoMetaData):
         else:
             self._bounding_box = _BoundingBox(value)
             self._distribute_bounding_box()
+
+    def set_unit(self, name: str, unit: UnitBase):
+        if name in self._data:
+            self._data[name].unit = unit
+        else:
+            raise RuntimeError(f'No input {name} found')
+
+    def get_unit(self, name: str) -> UnitBase:
+        if name in self._data:
+            return self._data[name].unit
+        else:
+            raise RuntimeError(f'No input {name} found')
+
+    @property
+    def units(self) -> Union[Dict[str, UnitBase], None]:
+        units = {name: entry.unit for name, entry in self._data.items() if entry.unit is not None}
+        if units == {}:
+            return None
+        else:
+            return units
+
+    @units.setter
+    def units(self, value: Dict[str, UnitBase]):
+        for name, unit in value.items():
+            self.set_unit(name, unit)
 
     def _check_inputs(self, *args, **kwargs):
         """
@@ -2080,6 +2215,20 @@ class MetaData(object):
     def outputs(self, value):
         self._outputs.outputs = value
 
+    def set_input_unit(self, name: str, unit: UnitBase):
+        self._inputs.set_unit(name, unit)
+
+    def get_input_unit(self, name: str) -> UnitBase:
+        return self._inputs.get_unit(name)
+
+    @property
+    def input_units(self) -> Union[Dict[str, UnitBase], None]:
+        return self._inputs.units
+
+    @input_units.setter
+    def input_units(self, value: Dict[str, UnitBase]):
+        self._inputs.units = value
+
     def evaluation_inputs(self, *args, **kwargs) -> EvaluationInputs:
         """
         Turn the user's evaluation inputs to a model into an EvaluationInputs object
@@ -2126,7 +2275,9 @@ class MetaData(object):
         """
         self._inputs.enforce_bounding_box(self.n_models, self.model_set_axis, inputs)
 
-    def process_inputs(self, params: list, inputs: EvaluationInputs):
+    def process_inputs(self, params: list,
+                       model: 'Model',
+                       inputs: EvaluationInputs):
         """
         Process the EvaluationInputs object in light of the meta_data:
             Checks input shapes
@@ -2143,7 +2294,7 @@ class MetaData(object):
             The wrapped user inputs.
         """
         inputs.check_input_shape(self.n_models)
-        # TODO: enforce units.
+        inputs.enforce_units(model)
 
         # Generate the format info for the inputs
         self.set_format_info(params, inputs)
@@ -2151,11 +2302,12 @@ class MetaData(object):
         # Enforce the bounding box
         self.enforce_bounding_box(inputs)
 
-    def prepare_inputs(self, params: list, *args, **kwargs) -> EvaluationInputs:
+    def prepare_inputs(self, params: list, model: 'Model',
+                       *args, **kwargs) -> EvaluationInputs:
         # Process user inputs into the wrapper
         inputs = self.evaluation_inputs(*args, **kwargs)
 
         # Process the input wrapper
-        self.process_inputs(params, inputs)
+        self.process_inputs(params, model, inputs)
 
         return inputs

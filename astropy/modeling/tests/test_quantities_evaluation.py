@@ -90,8 +90,6 @@ class MyTestModel(Model):
     n_outputs = 1
 
     def evaluate(self, a, b):
-        print('a', a)
-        print('b', b)
         return a * b
 
 

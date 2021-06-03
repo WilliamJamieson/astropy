@@ -5,9 +5,9 @@
 import pytest
 import numpy as np
 import unittest.mock as mk
+import astropy.units as u
 
 from astropy.modeling import evaluation_io
-from astropy.utils import shapes as utils_shapes
 from astropy.modeling.utils import _BoundingBox
 
 
@@ -401,6 +401,192 @@ class TestInputEntry:
         assert entry.reduce_to_bounding_box(valid_index) == \
             evaluation_io.InputEntry('name', 1)
 
+    def test__convert_unit_value(self):
+        value = u.Quantity(mk.MagicMock())
+        unit = mk.MagicMock()
+
+        with mk.patch.object(u.Quantity, 'to', autospec=True) as mkTo:
+            # Test change
+            equivalencies = {'name': mk.MagicMock()}
+            entry = evaluation_io.InputEntry('name', 1)
+            assert entry._value == 1
+            entry._convert_unit_value(value, unit, equivalencies, False)
+            assert entry._value == mkTo.return_value
+            assert mkTo.call_args_list == \
+                [mk.call(value,  unit, equivalencies=equivalencies['name'])]
+            mkTo.reset_mock()
+
+            equivalencies = mk.MagicMock()
+            entry = evaluation_io.InputEntry('name', 1)
+            assert entry._value == 1
+            entry._convert_unit_value(value, unit, equivalencies, True)
+            assert entry._value == mkTo.return_value
+            assert mkTo.call_args_list == \
+                [mk.call(value,  unit, equivalencies=equivalencies.
+                         __getitem__.return_value)]
+            assert equivalencies.__getitem__.call_args_list == [mk.call('name')]
+            mkTo.reset_mock()
+
+            # Test no change
+            entry = evaluation_io.InputEntry('name', 1)
+            assert entry._value == 1
+            entry._convert_unit_value(value, unit, equivalencies, False)
+            assert entry._value == 1
+            assert mkTo.call_args_list == []
+
+    def test__not_equivalent_error(self):
+        entry = evaluation_io.InputEntry('name', 1)
+        name = 'test'
+        value = 10 * u.m
+
+        # dimensionless_unscaled error
+        with pytest.raises(u.UnitsError) as err:
+            entry._not_equivalent_error(name, value, u.dimensionless_unscaled)
+        assert err.value.args[0] == ("test: Units of input 'name', m (length), "
+                                     "could not be converted to required dimensionless input")
+
+        # not equivalent error (not dimensionless_unscaled)
+        with pytest.raises(u.UnitsError) as err:
+            entry._not_equivalent_error(name, value, u.K)
+        assert err.value.args[0] == ("test: Units of input 'name', m (length), "
+                                     "could not be converted to required input units "
+                                     "of K (temperature)")
+
+    def test__convert_unit(self):
+        entry = evaluation_io.InputEntry('name', 1)
+        name = mk.MagicMock()
+        value = 10 * u.m
+        unit = mk.MagicMock()
+        model = mk.MagicMock()
+        equivalencies = mk.MagicMock()
+
+        effect = [True, False]
+        with mk.patch.object(u.UnitBase, 'is_equivalent',
+                             autospec=True, side_effect=effect) as mkEquivalent:
+            with mk.patch.object(evaluation_io.InputEntry, '_convert_unit_value',
+                                 autospec=True) as mkConvert:
+                with mk.patch.object(evaluation_io.InputEntry, '_not_equivalent_error',
+                                     autospec=True) as mkError:
+                    # Conversion success
+                    entry._convert_unit(name, value, unit, model, equivalencies)
+                    assert mkEquivalent.call_args_list == \
+                        [mk.call(value.unit, unit,
+                                 equivalencies=equivalencies.__getitem__.return_value)]
+                    assert equivalencies.__getitem__.call_args_list == [mk.call('name')]
+                    assert mkConvert.call_args_list ==\
+                        [mk.call(entry, value, unit, equivalencies,
+                                 model.input_units_strict.__getitem__.return_value)]
+                    assert model.input_units_strict.__getitem__.call_args_list == \
+                        [mk.call('name')]
+                    assert mkError.call_args_list == []
+                    mkEquivalent.reset_mock()
+                    mkConvert.reset_mock()
+                    equivalencies.reset_mock()
+                    model.reset_mock()
+
+                    # Conversion fail
+                    entry._convert_unit(name, value, unit, model, equivalencies)
+                    assert mkEquivalent.call_args_list == \
+                        [mk.call(value.unit, unit,
+                                 equivalencies=equivalencies.__getitem__.return_value)]
+                    assert equivalencies.__getitem__.call_args_list == [mk.call('name')]
+                    assert mkConvert.call_args_list == []
+                    assert model.input_units_strict.__getitem__.call_args_list == []
+                    assert mkError.call_args_list == [mk.call(entry, name, value, unit)]
+
+    def test__validate_dimensionless(self):
+        entry = evaluation_io.InputEntry('name', [1, 1])
+        name = 'test'
+        model = mk.MagicMock()
+
+        allow_dimensionless = [False, False, False, False,                    True]
+        units               = [u.m,   u.m,   None,  u.dimensionless_unscaled, u.m]
+
+        model.input_units_allow_dimensionless.__getitem__.side_effect = allow_dimensionless
+
+        # Error is raised
+        with pytest.raises(u.UnitsError) as err:
+            entry._validate_dimensionless(name, units[0], model)
+        assert err.value.args[0] == ("test: Units of input 'name', (dimensionless), "
+                                     "could not be converted to required input units "
+                                     "of m (length)")
+        assert model.input_units_allow_dimensionless.__getitem__.call_args_list ==\
+            [mk.call('name')]
+        model.reset_mock()
+
+        # Error is not raised (all zero)
+        entry.value = [0, 0]
+        entry._validate_dimensionless(name, units[1], model)
+        assert model.input_units_allow_dimensionless.__getitem__.call_args_list ==\
+            [mk.call('name')]
+        entry.value = [1, 1]
+        model.reset_mock()
+
+        # Error is not raised (unit is None)
+        entry._validate_dimensionless(name, units[2], model)
+        assert model.input_units_allow_dimensionless.__getitem__.call_args_list ==\
+            [mk.call('name')]
+        model.reset_mock()
+
+        # Error is not raised (unit is dimensionless_unscaled)
+        entry._validate_dimensionless(name, units[3], model)
+        assert model.input_units_allow_dimensionless.__getitem__.call_args_list ==\
+            [mk.call('name')]
+        model.reset_mock()
+
+        # Error is not raised (allow_dimensionless)
+        entry._validate_dimensionless(name, units[4], model)
+        assert model.input_units_allow_dimensionless.__getitem__.call_args_list ==\
+            [mk.call('name')]
+
+    def test__get_unit(self):
+        entry = evaluation_io.InputEntry('name', [1, 1])
+        model = mk.MagicMock()
+
+        assert entry._get_unit(model) == model.input_units.get.return_value
+        assert model.input_units.get.call_args_list == \
+            [mk.call('name', None)]
+
+    def test_convert_unit(self):
+        entry = evaluation_io.InputEntry('name', 1)
+        model = mk.MagicMock()
+        model.name = 'test'
+        equivalencies = mk.MagicMock()
+
+        units = [None, mk.MagicMock(), mk.MagicMock()]
+        with mk.patch.object(evaluation_io.InputEntry, '_get_unit',
+                             autospec=True, side_effect=units) as mkGet:
+            with mk.patch.object(evaluation_io.InputEntry, '_convert_unit',
+                                 autospec=True) as mkConvert:
+                with mk.patch.object(evaluation_io.InputEntry, '_validate_dimensionless',
+                                     autospec=True) as mkValidate:
+                    # Nothing happens
+                    entry.convert_unit(model, equivalencies)
+                    assert mkGet.call_args_list == \
+                        [mk.call(entry, model)]
+                    assert mkConvert.call_args_list == []
+                    assert mkValidate.call_args_list == []
+                    mkGet.reset_mock()
+
+                    # validate_dimensionless
+                    entry.convert_unit(model, equivalencies)
+                    assert mkGet.call_args_list == \
+                        [mk.call(entry, model)]
+                    assert mkConvert.call_args_list == []
+                    assert mkValidate.call_args_list == \
+                        [mk.call(entry, 'test', units[1], model)]
+                    mkGet.reset_mock()
+                    mkValidate.reset_mock()
+
+                    # convert
+                    entry.value = 10 * u.m
+                    entry.convert_unit(model, equivalencies)
+                    assert mkGet.call_args_list == \
+                        [mk.call(entry, model)]
+                    assert mkConvert.call_args_list == \
+                        [mk.call(entry, 'test', 10 * u.m, units[2], model, equivalencies)]
+                    assert mkValidate.call_args_list == []
+
 
 class TestInputs:
     def test___init__(self):
@@ -420,6 +606,12 @@ class TestInputs:
 
         # Not matching type
         assert not (inputs1 == mk.MagicMock())
+
+    def test_names(self):
+        entries = {f'x{idx}': mk.MagicMock() for idx in range(3)}
+        inputs = evaluation_io.Inputs(entries)
+
+        assert inputs.names == tuple([f'x{idx}' for idx in range(3)])
 
     def test_inputs(self):
         inputs = evaluation_io.Inputs({'test': evaluation_io.InputEntry('test', 1)})
@@ -651,6 +843,20 @@ class TestInputs:
                 assert mkReduce.call_args_list == \
                     [mk.call(inputs, valid_index)]
                 assert mkCopy.call_args_list == []
+
+    def test_convert_units(self):
+        entries = {f'x{idx}': evaluation_io.InputEntry(f'x{idx}', mk.MagicMock())
+                   for idx in range(3)}
+        inputs = evaluation_io.Inputs(entries)
+        model = mk.MagicMock()
+        equivalencies = mk.MagicMock()
+
+        with mk.patch.object(evaluation_io.InputEntry, 'convert_unit',
+                             autospec=True) as mkConvert:
+            inputs.convert_units(model, equivalencies)
+            assert mkConvert.call_args_list == \
+                [mk.call(entry, model, equivalencies)
+                 for entry in entries.values()]
 
 
 class TestOptional:
@@ -1090,6 +1296,89 @@ class TestEvaluationInputs:
                 assert mkData.call_args_list == \
                     [mk.call(data, valid_index, all_out)]
 
+    def test__equivalencies(self):
+        optional = evaluation_io.Optional({'option': 2})
+        evaluation = evaluation_io.EvaluationInputs(mk.MagicMock(), optional, mk.MagicMock())
+        model = mk.MagicMock()
+
+        with mk.patch.object(evaluation_io.Optional, 'inputs_map',
+                             new_callable=mk.PropertyMock) as mkMap:
+            with mk.patch.object(evaluation_io.Optional, 'equivalencies',
+                                 new_callable=mk.PropertyMock) as mkEquivalencies:
+                # No map
+                mkMap.return_value = None
+                assert evaluation._equivalencies(model) == mkEquivalencies.return_value
+                assert mkEquivalencies.call_args_list == [mk.call()]
+                assert mkMap.call_args_list == [mk.call()]
+                mkEquivalencies.reset_mock()
+                mkMap.reset_mock()
+
+                # Has map
+                equivalencies = {
+                    'a': mk.MagicMock(),
+                    'b': mk.MagicMock(),
+                    'c': mk.MagicMock()
+                }
+                mkEquivalencies.return_value = equivalencies
+                inputs_map = [
+                    (model, ('test0', 'a')),
+                    (model, ('test1', 'c')),
+                    (mk.MagicMock(), mk.MagicMock())
+                ]
+                mkMap.return_value = inputs_map
+                edict = {
+                    'test0': equivalencies['a'],
+                    'test1': equivalencies['c'],
+                }
+                assert evaluation._equivalencies(model) == edict
+                assert mkEquivalencies.call_args_list == [mk.call()]
+                assert mkMap.call_args_list == [mk.call()]
+
+    def test__combine_equivalency_dict(self):
+        inputs = evaluation_io.Inputs({'test': evaluation_io.InputEntry('test', 1)})
+        evaluation = evaluation_io.EvaluationInputs(inputs, mk.MagicMock(), mk.MagicMock())
+        model = mk.MagicMock()
+
+        with mk.patch.object(evaluation_io.Inputs, 'names',
+                             new_callable=mk.PropertyMock) as mkNames:
+            with mk.patch.object(evaluation_io.EvaluationInputs, '_equivalencies',
+                                 autospec=True) as mkEquivalencies:
+                with mk.patch.object(evaluation_io, '_combine_equivalency_dict',
+                                     autospec=True) as mkCombine:
+                    assert evaluation._combine_equivalency_dict(model) == \
+                        mkCombine.return_value
+                    assert mkCombine.call_args_list == \
+                        [mk.call(mkNames.return_value,
+                                 mkEquivalencies.return_value,
+                                 model.input_units_equivalencies)]
+                    assert mkNames.call_args_list == [mk.call()]
+                    assert mkEquivalencies.call_args_list == \
+                        [mk.call(evaluation, model)]
+
+    def test_enfoce_units(self):
+        inputs = evaluation_io.Inputs({'test': evaluation_io.InputEntry('test', 1)})
+        evaluation = evaluation_io.EvaluationInputs(inputs, mk.MagicMock(), mk.MagicMock())
+        model = mk.MagicMock()
+
+        with mk.patch.object(evaluation_io.EvaluationInputs, '_combine_equivalency_dict',
+                             autospec=True) as mkCombine:
+            with mk.patch.object(evaluation_io.Inputs, 'convert_units',
+                                 autospec=True) as mkConvert:
+                # Model input_units is not None:
+                evaluation.enforce_units(model)
+                assert mkConvert.call_args_list == \
+                    [mk.call(inputs, model, mkCombine.return_value)]
+                assert mkCombine.call_args_list == \
+                    [mk.call(evaluation, model)]
+                mkConvert.reset_mock()
+                mkCombine.reset_mock()
+
+                # Model input_units is None:
+                model.input_units = None
+                evaluation.enforce_units(model)
+                assert mkConvert.call_args_list == []
+                assert mkCombine.call_args_list == []
+
 
 class TestOutputEntry:
     def test___init__(self):
@@ -1521,11 +1810,13 @@ class TestInputMetaDataEntry:
         entry = evaluation_io.InputMetaDataEntry()
         assert entry._name is None
         assert entry._pos is None
+        assert entry._unit is None
         assert entry._bounding_box is None
 
-        entry = evaluation_io.InputMetaDataEntry('test', 1, _BoundingBox((-1, 1)))
+        entry = evaluation_io.InputMetaDataEntry('test', 1, u.m, _BoundingBox((-1, 1)))
         assert entry._name == 'test'
         assert entry._pos == 1
+        assert entry._unit == u.m
         assert entry._bounding_box == _BoundingBox((-1, 1))
 
     def test_pos(self):
@@ -1547,6 +1838,18 @@ class TestInputMetaDataEntry:
             entry.pos = 2
         assert entry.pos == 1
         assert entry._pos == 1
+
+    def test_unit(self):
+        entry = evaluation_io.InputMetaDataEntry()
+
+        # Test get
+        assert entry._unit is None
+        assert entry.unit is None
+
+        # Test set
+        entry.unit = u.m
+        assert entry._unit == u.m
+        assert entry.unit == u.m
 
     def test_bounding_box(self):
         # test get error
@@ -1583,29 +1886,35 @@ class TestInputMetaDataEntry:
         assert entry == input_value
 
         # test pass tuple in
-        entry = evaluation_io.InputMetaDataEntry.create_entry((1, (-1, 1)))
+        entry = evaluation_io.InputMetaDataEntry.create_entry((1, u.m,(-1, 1)))
         assert entry._name is None
         assert entry._pos == 1
+        assert entry._unit == u.m
         assert entry._bounding_box == (-1, 1)
-        entry = evaluation_io.InputMetaDataEntry.create_entry((1, (-1, 1)), name='test')
+        entry = evaluation_io.InputMetaDataEntry.create_entry((1, u.m, (-1, 1)), name='test')
         assert entry._name == 'test'
         assert entry._pos == 1
+        assert entry._unit == u.m
         assert entry._bounding_box == (-1, 1)
-        entry = evaluation_io.InputMetaDataEntry.create_entry((1, (-1, 1)), name='test', pos=2)
+        entry = evaluation_io.InputMetaDataEntry.create_entry((1, u.m, (-1, 1)), name='test', pos=2)
         assert entry._name == 'test'
         assert entry._pos == 1
+        assert entry._unit == u.m
         assert entry._bounding_box == (-1, 1)
         entry = evaluation_io.InputMetaDataEntry.create_entry((1,))
         assert entry._name is None
         assert entry._pos == 1
+        assert entry._unit is None
         assert entry._bounding_box is None
         entry = evaluation_io.InputMetaDataEntry.create_entry((1,), name='test')
         assert entry._name == 'test'
         assert entry._pos == 1
+        assert entry._unit is None
         assert entry._bounding_box is None
         entry = evaluation_io.InputMetaDataEntry.create_entry((1,), name='test', pos=2)
         assert entry._name == 'test'
         assert entry._pos == 1
+        assert entry._unit is None
         assert entry._bounding_box is None
 
         # test pass str in
@@ -1959,6 +2268,70 @@ class TestInputMetaData:
             input_data.bounding_box = bbox
             for _input in input_data._data.values():
                 assert _input.bounding_box == bbox[index - 1 - _input.pos]
+
+    def test_set_unit(self):
+        meta_data = evaluation_io.InputMetaData.create_defaults(3)
+
+        # Test set without error
+        with mk.patch.object(evaluation_io.InputMetaDataEntry, 'unit',
+                             new_callable=mk.PropertyMock) as mkUnit:
+            for name in meta_data.data.keys():
+                unit = mk.MagicMock()
+                meta_data.set_unit(name, unit)
+                assert mkUnit.call_args_list == [mk.call(unit)]
+                mkUnit.reset_mock()
+
+        # Test set with error
+        name = mk.MagicMock()
+        unit = mk.MagicMock()
+        with pytest.raises(RuntimeError):
+            meta_data.set_unit(name, unit)
+
+    def test_get_unit(self):
+        meta_data = evaluation_io.InputMetaData.create_defaults(3)
+
+        # Test get without error
+        units = [mk.MagicMock() for _ in range(3)]
+        with mk.patch.object(evaluation_io.InputMetaDataEntry, 'unit',
+                             new_callable=mk.PropertyMock) as mkUnit:
+            mkUnit.side_effect = units
+
+            for index, name in enumerate(meta_data.data.keys()):
+                assert meta_data.get_unit(name) == units[index]
+                assert mkUnit.call_args_list == [mk.call()]
+                mkUnit.reset_mock()
+
+        # Test get with error
+        name = mk.MagicMock()
+        with pytest.raises(RuntimeError):
+            meta_data.get_unit(name)
+
+    def test_units(self):
+        meta_data = evaluation_io.InputMetaData.create_defaults(3)
+
+        # Test get empty
+        assert meta_data.units is None
+
+        # Test get non-empty
+        units = [mk.MagicMock(), mk.MagicMock(),
+                 None,
+                 mk.MagicMock(), mk.MagicMock()]
+        true_units = {'x0': units[1], 'x2': units[4]}
+        with mk.patch.object(evaluation_io.InputMetaDataEntry, 'unit',
+                             new_callable=mk.PropertyMock) as mkUnit:
+            mkUnit.side_effect = units
+            assert meta_data.units == true_units
+            assert mkUnit.call_args_list ==\
+                [mk.call() for _ in units]
+
+        # Test set
+        value = {mk.MagicMock(): mk.MagicMock() for _ in range(5)}
+        with mk.patch.object(evaluation_io.InputMetaData, 'set_unit',
+                             autospec=True) as mkSet:
+            meta_data.units = value
+            assert mkSet.call_args_list ==\
+                [mk.call(meta_data, name, unit)
+                 for name, unit in value.items()]
 
     def test__check_inputs(self):
         meta_data = evaluation_io.InputMetaData.create_defaults(3)
@@ -2715,6 +3088,43 @@ class TestMetaData:
                 meta_data.outputs = value
                 assert mkOutputs.call_args_list == [mk.call(value)]
 
+    def test_set_input_unit(self):
+        inputs = evaluation_io.InputMetaData.create_defaults(3)
+        meta_data = evaluation_io.MetaData(inputs, mk.MagicMock(), mk.MagicMock())
+
+        name = mk.MagicMock()
+        unit = mk.MagicMock()
+        with mk.patch.object(evaluation_io.InputMetaData, 'set_unit',
+                             autospec=True) as mkSet:
+            meta_data.set_input_unit(name, unit)
+            assert mkSet.call_args_list == [mk.call(inputs, name, unit)]
+
+    def test_get_input_unit(self):
+        inputs = evaluation_io.InputMetaData.create_defaults(3)
+        meta_data = evaluation_io.MetaData(inputs, mk.MagicMock(), mk.MagicMock())
+
+        name = mk.MagicMock()
+        with mk.patch.object(evaluation_io.InputMetaData, 'get_unit',
+                             autospec=True) as mkGet:
+            assert meta_data.get_input_unit(name) == mkGet.return_value
+            assert mkGet.call_args_list == [mk.call(inputs, name)]
+
+    def test_input_units(self):
+        inputs = evaluation_io.InputMetaData.create_defaults(3)
+        meta_data = evaluation_io.MetaData(inputs, mk.MagicMock(), mk.MagicMock())
+
+        with mk.patch.object(evaluation_io.InputMetaData, 'units',
+                             new_callable=mk.PropertyMock) as mkUnits:
+            # Test get
+            assert meta_data.input_units == mkUnits.return_value
+            assert mkUnits.call_args_list == [mk.call()]
+            mkUnits.reset_mock()
+
+            # Test set
+            value = mk.MagicMock()
+            meta_data.input_units = value
+            assert mkUnits.call_args_list == [mk.call(value)]
+
     def test_evaluation_inputs(self):
         inputs = evaluation_io.InputMetaData.create_defaults(3)
         optional = evaluation_io.OptionalMetaData.create_defaults(3)
@@ -2787,35 +3197,41 @@ class TestMetaData:
         meta_data = evaluation_io.MetaData(mk.MagicMock(), mk.MagicMock(),
                                               mk.MagicMock())
         params = mk.MagicMock()
+        model = mk.MagicMock()
         inputs = evaluation_io.EvaluationInputs(mk.MagicMock(), mk.MagicMock(),
                                                 mk.MagicMock())
 
         with mk.patch.object(evaluation_io.EvaluationInputs, 'check_input_shape',
                              autospec=True) as mkCheck:
-            with mk.patch.object(evaluation_io.MetaData, 'n_models',
-                                 new_callable=mk.PropertyMock) as mkModels:
-                with mk.patch.object(evaluation_io.MetaData, 'set_format_info',
-                                     autospec=True) as mkSet:
-                    with mk.patch.object(evaluation_io.MetaData, 'enforce_bounding_box',
-                                         autospec=True) as mkEnforce:
-                        main = mk.MagicMock()
-                        main.attach_mock(mkCheck, 'check')
-                        main.attach_mock(mkSet, 'set')
-                        main.attach_mock(mkEnforce, 'enforce')
+            with mk.patch.object(evaluation_io.EvaluationInputs, 'enforce_units',
+                                 autospec=True) as mkUnits:
+                with mk.patch.object(evaluation_io.MetaData, 'n_models',
+                                     new_callable=mk.PropertyMock) as mkModels:
+                    with mk.patch.object(evaluation_io.MetaData, 'set_format_info',
+                                         autospec=True) as mkSet:
+                        with mk.patch.object(evaluation_io.MetaData, 'enforce_bounding_box',
+                                             autospec=True) as mkEnforce:
+                            main = mk.MagicMock()
+                            main.attach_mock(mkCheck, 'check')
+                            main.attach_mock(mkUnits, 'units')
+                            main.attach_mock(mkSet, 'set')
+                            main.attach_mock(mkEnforce, 'enforce')
 
-                        meta_data.process_inputs(params, inputs)
-                        assert main.mock_calls == \
-                            [
-                                mk.call.check(inputs, mkModels.return_value),
-                                mk.call.set(meta_data, params, inputs),
-                                mk.call.enforce(meta_data, inputs)
-                            ]
-                        assert mkModels.call_args_list == [mk.call()]
+                            meta_data.process_inputs(params, model, inputs)
+                            assert main.mock_calls == \
+                                [
+                                    mk.call.check(inputs, mkModels.return_value),
+                                    mk.call.units(inputs, model),
+                                    mk.call.set(meta_data, params, inputs),
+                                    mk.call.enforce(meta_data, inputs)
+                                ]
+                            assert mkModels.call_args_list == [mk.call()]
 
     def test_prepare_inputs(self):
         meta_data = evaluation_io.MetaData(mk.MagicMock(), mk.MagicMock(),
                                               mk.MagicMock())
         params = mk.MagicMock()
+        model = mk.MagicMock()
         args = (mk.MagicMock(), mk.MagicMock())
         kwargs = {'test': mk.MagicMock()}
 
@@ -2823,9 +3239,9 @@ class TestMetaData:
                              autospec=True) as mkInputs:
             with mk.patch.object(evaluation_io.MetaData, 'process_inputs',
                                  autospec=True) as mkProcess:
-                assert meta_data.prepare_inputs(params, *args, **kwargs) == \
+                assert meta_data.prepare_inputs(params, model, *args, **kwargs) == \
                     mkInputs.return_value
                 assert mkProcess.call_args_list == \
-                    [mk.call(meta_data, params, mkInputs.return_value)]
+                    [mk.call(meta_data, params, model, mkInputs.return_value)]
                 assert mkInputs.call_args_list == \
                     [mk.call(meta_data, *args, **kwargs)]

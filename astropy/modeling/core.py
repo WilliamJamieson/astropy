@@ -921,15 +921,19 @@ class Model(metaclass=_ModelMeta):
 
         result = self.evaluate(*chain(inputs.values, parameters))
 
+    def prepare_inputs_from_metadata(self, *args, **kwargs) -> EvaluationInputs:
+        params = [getattr(self, name) for name in self.param_names]
+        return  self._input_meta_data.prepare_inputs(params,
+                                                     self,
+                                                     *args, **kwargs)
+
     def __call__(self, *args, **kwargs):
         """
         Evaluate this model using the given input(s) and the parameter values
         that were specified when the model was instantiated.
         """
-
-        params = [getattr(self, name) for name in self.param_names]
-        inputs = self._input_meta_data.prepare_inputs(params, *args, **kwargs)
-        # result = self.evaluate_model(inputs)
+        inputs = self.prepare_inputs_from_metadata(*args, **kwargs)
+        result = self.evaluate_model(inputs)
 
         new_args, kwargs = self._get_renamed_inputs_as_positional(*args, **kwargs)
 
@@ -2098,6 +2102,7 @@ class Model(metaclass=_ModelMeta):
                 value = quantity_asanyarray(value, dtype=float)
                 params.add(param_name)
                 self._initialize_parameter_value(param_name, value)
+
         # Now deal with case where param_name is not supplied by args or kwargs
         for param_name in self.param_names:
             if param_name not in params:
@@ -4174,7 +4179,6 @@ def generic_call(self, *inputs, **kwargs):
         if valid_result_unit is not None:
             outputs = Quantity(outputs, valid_result_unit, copy=False)
     else:
-        print(inputs)
         outputs = self.evaluate(*chain(inputs, parameters))
         if self.n_outputs == 1:
             outputs = (outputs,)

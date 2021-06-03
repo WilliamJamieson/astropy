@@ -111,12 +111,14 @@ def test_blackbody_exceptions_and_warnings():
     # Zero wavelength given for conversion to Hz
     with pytest.warns(AstropyUserWarning, match='invalid') as w:
         bb(0 * u.AA)
-    assert len(w) == 3  # 2 of these are RuntimeWarning from zero divide
+    # assert len(w) == 3  # 2 of these are RuntimeWarning from zero divide
+    assert len(w) == 6  # Temporary change for running new/old model evaluation system simultaniously
 
     # Negative wavelength given for conversion to Hz
     with pytest.warns(AstropyUserWarning, match='invalid') as w:
         bb(-1.0 * u.AA)
-    assert len(w) == 1
+    # assert len(w) == 1
+    assert len(w) == 2  # Temporary change for running new/old model evaluation system simultaniously
 
     # Test that a non surface brightness converatable scale unit
     with pytest.raises(ValueError) as exc:
