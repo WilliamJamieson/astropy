@@ -1034,26 +1034,36 @@ class TestOptional:
 
 class TestInputData:
     def test___init__(self):
+
         # Defaults
         inputs = evaluation_io.InputData()
+        assert inputs._shape is None
         assert inputs._format_info is None
         assert inputs._valid_index is None
         assert inputs._all_out is None
+        assert inputs._with_bounding_box == False
 
         # Optionals
-        inputs = evaluation_io.InputData([3], np.array([7]), True)
+        inputs = evaluation_io.InputData((2, 4), [3], np.array([7]), True, True)
+        assert inputs._shape == (2, 4)
         assert inputs._format_info == [3]
         assert inputs._valid_index == np.array([7])
-        assert inputs._all_out
+        assert inputs._all_out == True
+        assert inputs._with_bounding_box == True
 
     def test___eq__(self):
-        inputs1 = evaluation_io.InputData([3], np.array([7]), True)
-        inputs2 = evaluation_io.InputData([3], np.array([7]), True)
+        inputs1 = evaluation_io.InputData((2, 4), [3], np.array([7]), True, True)
+        inputs2 = evaluation_io.InputData((2, 4), [3], np.array([7]), True, True)
 
         # Equal
         assert inputs1 == inputs2
 
+        # Not matching with_bounding_box
+        inputs2._with_bounding_box = mk.MagicMock()
+        assert not (inputs1 == inputs2)
+
         # Not matching all_out
+        inputs2._with_bounding_box == inputs1._with_bounding_box
         inputs2._all_out = mk.MagicMock()
         assert not (inputs1 == inputs2)
 
@@ -1067,8 +1077,26 @@ class TestInputData:
         inputs2._format_info = mk.MagicMock()
         assert not (inputs1 == inputs2)
 
+        # Not matching shape
+        inputs2._format_info = inputs1._format_info
+        inputs2._shape = mk.MagicMock()
+        assert not (inputs1 == inputs2)
+
         # Not matching type
         assert not (inputs1 == mk.MagicMock())
+
+    def test_shape(self):
+        inputs = evaluation_io.InputData()
+
+        # Test get
+        assert inputs._shape is None
+        assert inputs.shape == ()
+
+        # Test set
+        shape = mk.MagicMock()
+        inputs._shape = shape
+        assert inputs._shape == shape
+        assert inputs.shape == shape
 
     def test_format_info(self):
         inputs = evaluation_io.InputData()
@@ -1105,6 +1133,21 @@ class TestInputData:
         inputs.all_out = False
         assert inputs.all_out == False
 
+    def test_with_bounding_box(self):
+        inputs = evaluation_io.InputData()
+
+        # Test get
+        assert inputs._with_bounding_box == False
+        assert inputs.with_bounding_box == False
+
+        # Test set and get
+        inputs.with_bounding_box = True
+        assert inputs._with_bounding_box == True
+        assert inputs.with_bounding_box == True
+        inputs.with_bounding_box = False
+        assert inputs._with_bounding_box == False
+        assert inputs.with_bounding_box == False
+
     def test_copy(self):
         inputs = evaluation_io.InputData()
         with mk.patch.object(evaluation_io, 'deepcopy', autospec=True) as mkDeepcopy:
@@ -1112,11 +1155,12 @@ class TestInputData:
             assert mkDeepcopy.call_args_list == [mk.call(inputs)]
 
     def test_reduce_to_bounding_box(self):
-        inputs = evaluation_io.InputData()
+        inputs = evaluation_io.InputData((2, 4))
         valid_index = mk.MagicMock()
         all_out = mk.MagicMock()
+        input_shape = mk.MagicMock()
 
-        new_inputs = evaluation_io.InputData([3], np.array([7]), True)
+        new_inputs = evaluation_io.InputData((2, 4), [3], np.array([7]), True)
         assert not (inputs == new_inputs)
         with mk.patch.object(evaluation_io.InputData, 'copy',
                              autospec=True, return_value=new_inputs) as mkCopy:
@@ -1124,10 +1168,16 @@ class TestInputData:
                                  new_callable=mk.PropertyMock) as mkValid:
                 with mk.patch.object(evaluation_io.InputData, 'all_out',
                                      new_callable=mk.PropertyMock) as mkAll:
-                    reduced = inputs.reduce_to_bounding_box(valid_index, all_out)
-                    assert mkCopy.call_args_list == [mk.call(inputs)]
-                    assert mkValid.call_args_list == [mk.call(valid_index)]
-                    assert mkAll.call_args_list == [mk.call(all_out)]
+                    with mk.patch.object(evaluation_io.InputData, 'shape',
+                                         new_callable=mk.PropertyMock) as mkShape:
+                        with mk.patch.object(evaluation_io.InputData, 'with_bounding_box',
+                                             new_callable=mk.PropertyMock) as mkWith:
+                            reduced = inputs.reduce_to_bounding_box(valid_index, all_out, input_shape)
+                            assert mkCopy.call_args_list == [mk.call(inputs)]
+                            assert mkValid.call_args_list == [mk.call(valid_index)]
+                            assert mkAll.call_args_list == [mk.call(all_out)]
+                            assert mkShape.call_args_list == [mk.call(input_shape)]
+                            assert mkWith.call_args_list == [mk.call(True)]
         assert reduced == new_inputs
 
 
@@ -1283,18 +1333,19 @@ class TestEvaluationInputs:
 
         valid_index = mk.MagicMock()
         all_out = mk.MagicMock()
+        input_shape = mk.MagicMock()
 
         with mk.patch.object(evaluation_io.Inputs, 'reduce_to_bounding_box',
                              autospec=True) as mkInputs:
             with mk.patch.object(evaluation_io.InputData, 'reduce_to_bounding_box',
                                  autospec=True) as mkData:
-                evaluation.reduce_to_bounding_box(valid_index, all_out)
+                evaluation.reduce_to_bounding_box(valid_index, all_out, input_shape)
                 assert evaluation.inputs == mkInputs.return_value
                 assert evaluation.data == mkData.return_value
                 assert mkInputs.call_args_list == \
                     [mk.call(inputs, valid_index, all_out)]
                 assert mkData.call_args_list == \
-                    [mk.call(data, valid_index, all_out)]
+                    [mk.call(data, valid_index, all_out, input_shape)]
 
     def test__equivalencies(self):
         optional = evaluation_io.Optional({'option': 2})
@@ -1382,30 +1433,16 @@ class TestEvaluationInputs:
 
 class TestOutputEntry:
     def test___init__(self):
-        entry = evaluation_io.OutputEntry('name', 1, 2)
+        entry = evaluation_io.OutputEntry('name', 1)
         assert entry._name == 'name'
         assert entry._value == np.asanyarray(1)
-        assert entry._index == 2
 
-        entry = evaluation_io.OutputEntry('name', 1, 2)
+        entry = evaluation_io.OutputEntry('name', 1)
         assert entry._name == 'name'
         assert entry._value == np.asanyarray(1)
-        assert entry._index == 2
-
-    def test_index(self):
-        entry = evaluation_io.OutputEntry('name', 1, 2)
-
-        # Test get
-        assert entry._index == 2
-        assert entry.index == 2
-
-        # Test set
-        entry.index = 5
-        assert entry._index == 5
-        assert entry.index == 5
 
     def test_scalar(self):
-        entry = evaluation_io.OutputEntry('name', 1, 2)
+        entry = evaluation_io.OutputEntry('name', 1)
 
         # Test get already scalar
         assert entry.scalar == 1
@@ -1415,7 +1452,7 @@ class TestOutputEntry:
         assert (entry.scalar == np.array([2, 3, 4])).all()
 
     def test__new_output(self):
-        entry = evaluation_io.OutputEntry('name', 1, 2)
+        entry = evaluation_io.OutputEntry('name', 1)
         broadcast_shape = mk.MagicMock()
 
         value = mk.MagicMock()
@@ -1448,30 +1485,32 @@ class TestOutputEntry:
                 assert value.reshape.call_args_list == [mk.call(broadcast_shape)]
 
     def test__check_broadcast(self):
-        entry = evaluation_io.OutputEntry('name', 1, 0)
+        entry = evaluation_io.OutputEntry('name', 1)
+        index = mk.MagicMock()
         format_info = (mk.MagicMock(), mk.MagicMock())
 
         effects = [mk.MagicMock(), IndexError('test'), TypeError('test')]
         with mk.patch.object(evaluation_io, 'check_broadcast', autospec=True,
                              side_effect=effects) as mkCheck:
             # No issue
-            assert entry._check_broadcast(format_info) == effects[0]
+            assert entry._check_broadcast(format_info, index) == effects[0]
             assert mkCheck.call_args_list == [mk.call(*format_info)]
             mkCheck.reset_mock()
 
             # IndexError
-            assert entry._check_broadcast(format_info) == format_info[0]
+            assert entry._check_broadcast(format_info, 0) == format_info[0]
             assert mkCheck.call_args_list == [mk.call(*format_info)]
             mkCheck.reset_mock()
 
             # ValueError
-            assert entry._check_broadcast(format_info) == format_info[0]
+            assert entry._check_broadcast(format_info, 0) == format_info[0]
             assert mkCheck.call_args_list == [mk.call(*format_info)]
             mkCheck.reset_mock()
 
     def test_prepare_output_single_model(self):
-        entry = evaluation_io.OutputEntry('name', 1, 0)
+        entry = evaluation_io.OutputEntry('name', 1)
         format_info = (mk.MagicMock(), mk.MagicMock())
+        index = mk.MagicMock()
 
         broadcast_shapes = [None, mk.MagicMock()]
         with mk.patch.object(evaluation_io.OutputEntry, '_check_broadcast',
@@ -1479,19 +1518,20 @@ class TestOutputEntry:
             with mk.patch.object(evaluation_io.OutputEntry, '_new_output',
                                  autospec=True) as mkNew:
                 # No broadcast_shape
-                assert entry.prepare_output_single_model(format_info) == entry
-                assert mkCheck.call_args_list == [mk.call(entry, format_info)]
+                assert entry.prepare_output_single_model(format_info, index) == \
+                    entry
+                assert mkCheck.call_args_list == [mk.call(entry, format_info, index)]
                 assert mkNew.call_args_list == []
                 mkCheck.reset_mock()
 
                 # Has broadcast_shape
-                assert entry.prepare_output_single_model(format_info) == \
-                    evaluation_io.OutputEntry('name', mkNew.return_value, 0)
-                assert mkCheck.call_args_list == [mk.call(entry, format_info)]
+                assert entry.prepare_output_single_model(format_info, index) == \
+                    evaluation_io.OutputEntry('name', mkNew.return_value)
+                assert mkCheck.call_args_list == [mk.call(entry, format_info, index)]
                 assert mkNew.call_args_list == [mk.call(entry, broadcast_shapes[1])]
 
     def test_prepare_output_model_set(self):
-        entry = evaluation_io.OutputEntry('name', mk.MagicMock(), 0)
+        entry = evaluation_io.OutputEntry('name', mk.MagicMock())
         pivots = [mk.MagicMock(), mk.MagicMock()]
         model_set_axis = mk.MagicMock()
 
@@ -1503,10 +1543,9 @@ class TestOutputEntry:
             with mk.patch.object(evaluation_io.OutputEntry, 'value',
                                  new_callable=mk.PropertyMock) as mkValue:
                 # Make change (pivot < ndim and pivot != model_set_axis)
-                new_entry = entry.prepare_output_model_set(pivots, model_set_axis)
+                new_entry = entry.prepare_output_model_set(pivots, model_set_axis, 0)
                 assert isinstance(new_entry, evaluation_io.OutputEntry)
                 assert new_entry._name == "name"
-                assert new_entry._index == 0
                 assert mkValue.call_args_list == \
                     [mk.call(), mk.call(), mk.call(mkRoll.return_value)]
                 assert mkRoll.call_args_list == \
@@ -1518,7 +1557,7 @@ class TestOutputEntry:
                 pivots[0].reset_mock()
 
                 # No change (pivot < ndim and pivot == model_set_axis)
-                new_entry = entry.prepare_output_model_set(pivots, model_set_axis)
+                new_entry = entry.prepare_output_model_set(pivots, model_set_axis, 0)
                 assert id(new_entry) == id(entry)
                 assert mkValue.call_args_list == [mk.call()]
                 assert mkRoll.call_args_list == []
@@ -1528,7 +1567,7 @@ class TestOutputEntry:
                 pivots[0].reset_mock()
 
                 # No change (pivot >= ndim)
-                new_entry = entry.prepare_output_model_set(pivots, model_set_axis)
+                new_entry = entry.prepare_output_model_set(pivots, model_set_axis, 0)
                 assert id(new_entry) == id(entry)
                 assert mkValue.call_args_list == [mk.call()]
                 assert mkRoll.call_args_list == []
@@ -1536,26 +1575,40 @@ class TestOutputEntry:
                 assert pivots[0].__ne__.call_args_list == []
 
     def test_prepare_input(self):
-        entry = evaluation_io.OutputEntry('name', 1, 0)
+        entry = evaluation_io.OutputEntry('name', 1)
         assert entry.prepare_input() == evaluation_io.InputEntry('name', 1)
 
 
 class TestOutputs:
     def test___init__(self):
-        entries = {f"z{idx}": evaluation_io.OutputEntry(f"z{idx}", mk.MagicMock(), idx)
+        entries = {f"z{idx}": evaluation_io.OutputEntry(f"z{idx}", mk.MagicMock())
                    for idx in range(3)}
         outputs = evaluation_io.Outputs(entries)
         assert outputs._outputs == entries
 
+    def test___eq__(self):
+        outputs1 = evaluation_io.Outputs({'test': evaluation_io.OutputEntry('test', 1)})
+        outputs2 = evaluation_io.Outputs({'test': evaluation_io.OutputEntry('test', 1)})
+
+        # Equal
+        assert outputs1 == outputs2
+
+        # Not matching outputs
+        outputs2._outputs = mk.MagicMock()
+        assert not (outputs1 == outputs2)
+
+        # Not matching type
+        assert not (outputs1 == mk.MagicMock())
+
     def test_n_outputs(self):
         for index in range(5):
-            entries = {f"z{idx}": evaluation_io.OutputEntry(f"z{idx}", mk.MagicMock(), idx)
+            entries = {f"z{idx}": evaluation_io.OutputEntry(f"z{idx}", mk.MagicMock())
                        for idx in range(index)}
             outputs = evaluation_io.Outputs(entries)
             assert outputs.n_outputs == index
 
     def test_ouputs(self):
-        entries = {f"z{idx}": evaluation_io.OutputEntry(f"z{idx}", mk.MagicMock(), idx)
+        entries = {f"z{idx}": evaluation_io.OutputEntry(f"z{idx}", mk.MagicMock())
                    for idx in range(3)}
         outputs = evaluation_io.Outputs(entries.copy())
 
@@ -1563,7 +1616,7 @@ class TestOutputs:
         assert outputs.outputs == entries
         assert outputs._outputs == entries
 
-        new_entries = {f"zz{idx}": evaluation_io.OutputEntry(f"zz{idx}", mk.MagicMock(), idx)
+        new_entries = {f"zz{idx}": evaluation_io.OutputEntry(f"zz{idx}", mk.MagicMock())
                        for idx in range(3)}
         outputs.outputs = new_entries
         assert new_entries != entries
@@ -1571,7 +1624,7 @@ class TestOutputs:
         assert outputs._outputs == new_entries
 
     def test_prepare_outputs_single_model(self):
-        entries = {f"z{idx}": evaluation_io.OutputEntry(f"z{idx}", mk.MagicMock(), idx)
+        entries = {f"z{idx}": evaluation_io.OutputEntry(f"z{idx}", mk.MagicMock())
                    for idx in range(3)}
         outputs = evaluation_io.Outputs(entries)
         format_info = mk.MagicMock()
@@ -1584,11 +1637,12 @@ class TestOutputs:
             for index, (name, entry) in enumerate(entries.items()):
                 assert name in new_outputs.outputs
                 assert new_outputs.outputs[name] == new_output[index]
-                assert mkPrepare.call_args_list[index] == mk.call(entry, format_info)
+                assert mkPrepare.call_args_list[index] == \
+                    mk.call(entry, format_info, index)
             assert len(mkPrepare.call_args_list) == len(entries)
 
     def test_prepare_outputs_model_set(self):
-        entries = {f"z{idx}": evaluation_io.OutputEntry(f"z{idx}", mk.MagicMock(), idx)
+        entries = {f"z{idx}": evaluation_io.OutputEntry(f"z{idx}", mk.MagicMock())
                    for idx in range(3)}
         outputs = evaluation_io.Outputs(entries)
         pivots = mk.MagicMock()
@@ -1602,7 +1656,8 @@ class TestOutputs:
             for index, (name, entry) in enumerate(entries.items()):
                 assert name in new_outputs.outputs
                 assert new_outputs.outputs[name] == new_output[index]
-                assert mkPrepare.call_args_list[index] == mk.call(entry, pivots, model_set_axis)
+                assert mkPrepare.call_args_list[index] == \
+                    mk.call(entry, pivots, model_set_axis, index)
             assert len(mkPrepare.call_args_list) == len(entries)
 
 
@@ -2407,29 +2462,33 @@ class TestInputMetaData:
         meta_data = evaluation_io.InputMetaData.create_defaults(3)
         n_models = mk.MagicMock()
         model_set_axis = mk.MagicMock()
-        inputs = mk.MagicMock()
+        required_inputs = evaluation_io.Inputs(mk.MagicMock())
+        inputs = evaluation_io.EvaluationInputs(required_inputs, mk.MagicMock(), mk.MagicMock())
 
         update_effects = [(mk.MagicMock(), mk.MagicMock()) for _ in range(3)]
         with mk.patch.object(evaluation_io.InputMetaDataEntry, 'update_outside',
                              autospec=True, side_effect=update_effects) as mkUpdate:
             with mk.patch.object(np, 'zeros', autospec=True) as mkZeros:
-                outside_inputs, all_out = meta_data._outside(n_models, model_set_axis, inputs)
-                assert outside_inputs == update_effects[2][0]
-                assert all_out == update_effects[2][1]
+                with mk.patch.object(evaluation_io.Inputs, 'check_input_shape',
+                                     autospec=True) as mkCheck:
+                    outside_inputs, all_out, input_shape = meta_data._outside(n_models, model_set_axis, inputs)
+                    assert outside_inputs == update_effects[2][0]
+                    assert all_out == update_effects[2][1]
+                    assert input_shape == mkCheck.return_value
 
-                assert mkUpdate.call_args_list == \
-                    [
-                        mk.call(meta_data._data['x0'],
-                                mkZeros.return_value, False, inputs),
-                        mk.call(meta_data._data['x1'],
-                                update_effects[0][0], update_effects[0][1], inputs),
-                        mk.call(meta_data._data['x2'],
-                                update_effects[1][0], update_effects[1][1], inputs),
-                    ]
-                assert mkZeros.call_args_list == \
-                    [mk.call(inputs.inputs.check_input_shape.return_value, dtype=bool)]
-                assert inputs.inputs.check_input_shape.call_args_list == \
-                    [mk.call(n_models, model_set_axis, True)]
+                    assert mkUpdate.call_args_list == \
+                        [
+                            mk.call(meta_data._data['x0'],
+                                    mkZeros.return_value, False, inputs),
+                            mk.call(meta_data._data['x1'],
+                                    update_effects[0][0], update_effects[0][1], inputs),
+                            mk.call(meta_data._data['x2'],
+                                    update_effects[1][0], update_effects[1][1], inputs),
+                        ]
+                    assert mkZeros.call_args_list == \
+                        [mk.call(mkCheck.return_value, dtype=bool)]
+                    assert mkCheck.call_args_list == \
+                        [mk.call(required_inputs, n_models, model_set_axis, True)]
 
     def test__get_valid_index(self):
         meta_data = evaluation_io.InputMetaData.create_defaults(3)
@@ -2442,7 +2501,7 @@ class TestInputMetaData:
             [[], mk.MagicMock()]
         ]
 
-        outside_return = (mk.MagicMock(), mk.MagicMock())
+        outside_return = (mk.MagicMock(), mk.MagicMock(), mk.MagicMock())
         atleast_return = mk.MagicMock()
         atleast_return.nonzero.side_effect = valid_index_options
         with mk.patch.object(evaluation_io.InputMetaData, '_outside',
@@ -2451,10 +2510,11 @@ class TestInputMetaData:
                 with mk.patch.object(np, 'atleast_1d', autospec=True,
                                      return_value=atleast_return) as mkAtleast:
                     # Do not update all_out
-                    valid_index, all_out = \
+                    valid_index, all_out, input_shape = \
                         meta_data._get_valid_index(n_models, model_set_axis, inputs)
                     assert valid_index == valid_index_options[0]
                     assert all_out == outside_return[1]
+                    assert input_shape == outside_return[2]
                     assert atleast_return.nonzero.call_args_list == [mk.call()]
                     assert mkAtleast.call_args_list == [mk.call(mkNot.return_value)]
                     assert mkNot.call_args_list == [mk.call(outside_return[0])]
@@ -2466,10 +2526,11 @@ class TestInputMetaData:
                     mkOutside.reset_mock()
 
                     # Do update all_out
-                    valid_index, all_out = \
+                    valid_index, all_out, input_shape = \
                         meta_data._get_valid_index(n_models, model_set_axis, inputs)
                     assert valid_index == valid_index_options[1]
                     assert all_out == True
+                    assert input_shape == outside_return[2]
                     assert atleast_return.nonzero.call_args_list == [mk.call()]
                     assert mkAtleast.call_args_list == [mk.call(mkNot.return_value)]
                     assert mkNot.call_args_list == [mk.call(outside_return[0])]
@@ -2483,7 +2544,7 @@ class TestInputMetaData:
         optional = evaluation_io.Optional({})
         inputs = evaluation_io.EvaluationInputs(mk.MagicMock(), optional, mk.MagicMock())
 
-        get_return = (mk.MagicMock(), mk.MagicMock())
+        get_return = (mk.MagicMock(), mk.MagicMock(), mk.MagicMock())
         effects = [True, False]
         with mk.patch.object(evaluation_io.InputMetaData, '_get_valid_index',
                              autospec=True, return_value=get_return) as mkGet:
@@ -2495,7 +2556,7 @@ class TestInputMetaData:
                     # Enforce the bounding box
                     meta_data.enforce_bounding_box(n_models, model_set_axis, inputs)
                     assert mkReduce.call_args_list == \
-                        [mk.call(inputs, get_return[0], get_return[1])]
+                        [mk.call(inputs, get_return[0], get_return[1], get_return[2])]
                     assert mkGet.call_args_list == [mk.call(meta_data, n_models,
                                                             model_set_axis, inputs)]
                     assert mkWith.call_args_list == [mk.call()]
@@ -2779,6 +2840,125 @@ class TestOutputMetaDataEntry:
         with pytest.raises(ValueError):
             evaluation_io.OutputMetaDataEntry.create_entry(mk.MagicMock())
 
+    def test__create_base_result(self):
+        entry = evaluation_io.OutputMetaDataEntry('name')
+        input_data = evaluation_io.InputData(mk.MagicMock(), mk.MagicMock(), mk.MagicMock())
+        fill_value = mk.MagicMock()
+
+        result = mk.MagicMock()
+        zeros = mk.MagicMock()
+        zeros.__add__.return_value = result
+
+        with mk.patch.object(evaluation_io.InputData, 'shape',
+                             new_callable=mk.PropertyMock) as mkShape:
+            with mk.patch.object(np, 'zeros', autospec=True,
+                                 return_value=zeros) as mkZeros:
+                assert entry._create_base_result(input_data, fill_value) == result
+                assert zeros.__add__.call_args_list == [mk.call(fill_value)]
+                assert mkZeros.call_args_list == [mk.call(mkShape.return_value)]
+                assert mkShape.call_args_list == [mk.call()]
+
+    def test__modify_result(self):
+        entry = evaluation_io.OutputMetaDataEntry('name')
+        result = mk.MagicMock()
+        value = mk.MagicMock()
+        input_data = evaluation_io.InputData(mk.MagicMock(), mk.MagicMock(), mk.MagicMock())
+        fill_value = mk.MagicMock()
+
+        with mk.patch.object(evaluation_io.InputData, 'valid_index',
+                             new_callable=mk.PropertyMock) as mkValid:
+            with mk.patch.object(np, 'array', autospec=True) as mkArray:
+                # fill_value.shape is True
+                fill_value.shape = True
+                assert entry._modifly_result(result, value, input_data, fill_value) == \
+                    result
+                assert result.__setitem__.call_args_list == \
+                    [mk.call(mkValid.return_value, value)]
+                assert mkValid.call_args_list == [mk.call()]
+                assert mkArray.call_args_list == []
+                result.reset_mock()
+                mkValid.reset_mock()
+
+                # fill_value.shape is False
+                fill_value.shape = False
+                assert entry._modifly_result(result, value, input_data, fill_value) == \
+                    mkArray.return_value
+                assert result.__setitem__.call_args_list == []
+                assert mkValid.call_args_list == []
+                assert mkArray.call_args_list == [mk.call(value)]
+
+    def test__create_bounding_box_output(self):
+        entry = evaluation_io.OutputMetaDataEntry('name')
+        value = mk.MagicMock()
+        input_data = evaluation_io.InputData(mk.MagicMock(), mk.MagicMock(), mk.MagicMock())
+        fill_value = mk.MagicMock()
+
+        with mk.patch.object(evaluation_io.InputData, 'all_out',
+                             new_callable=mk.PropertyMock) as mkOut:
+            with mk.patch.object(evaluation_io.OutputMetaDataEntry,
+                                 '_create_base_result', autospec=True) as mkBase:
+                with mk.patch.object(evaluation_io.OutputMetaDataEntry,
+                                     '_modifly_result', autospec=True) as mkModify:
+                    # Not all_out
+                    mkOut.return_value = False
+                    assert entry._create_bounding_box_output(value, input_data, fill_value) ==\
+                        evaluation_io.OutputEntry('name', mkBase.return_value)
+                    assert mkOut.call_args_list == [mk.call()]
+                    assert mkBase.call_args_list == [mk.call(input_data, fill_value)]
+                    assert mkModify.call_args_list == []
+                    mkOut.reset_mock()
+                    mkBase.reset_mock()
+
+                    # all_out
+                    mkOut.return_value = True
+                    assert entry._create_bounding_box_output(value, input_data, fill_value) ==\
+                        evaluation_io.OutputEntry('name', mkModify.return_value)
+                    assert mkOut.call_args_list == [mk.call()]
+                    assert mkBase.call_args_list == [mk.call(input_data, fill_value)]
+                    assert mkModify.call_args_list == \
+                        [mk.call(mkBase.return_value, value, input_data, fill_value)]
+
+    def test__create_output(self):
+        entry = evaluation_io.OutputMetaDataEntry('name')
+        value = mk.MagicMock()
+        input_data = evaluation_io.InputData(mk.MagicMock(), mk.MagicMock(), mk.MagicMock())
+        fill_value = mk.MagicMock()
+
+        with mk.patch.object(evaluation_io.InputData, 'with_bounding_box',
+                             new_callable=mk.PropertyMock) as mkBox:
+            with mk.patch.object(evaluation_io.OutputMetaDataEntry,
+                                 '_create_bounding_box_output', autospec=True) as mkBase:
+                # with_bounding_box is True
+                mkBox.return_value = True
+                assert entry._create_output(value, input_data, fill_value) ==\
+                    mkBase.return_value
+                assert mkBase.call_args_list == \
+                    [mk.call(entry, value, input_data, fill_value)]
+                assert mkBox.call_args_list == [mk.call()]
+                mkBase.reset_mock()
+                mkBox.reset_mock()
+
+                # with_bounding_box is False
+                mkBox.return_value = False
+                assert entry._create_output(value, input_data, fill_value) ==\
+                    evaluation_io.OutputEntry('name', value)
+                assert mkBase.call_args_list == []
+                assert mkBox.call_args_list == [mk.call()]
+
+    def test_create_output(self):
+        entry = evaluation_io.OutputMetaDataEntry('name')
+        input_data = evaluation_io.InputData(mk.MagicMock(), mk.MagicMock(), mk.MagicMock())
+        fill_value = mk.MagicMock()
+
+        args = tuple([mk.MagicMock() for _ in range(3)])
+
+        with mk.patch.object(evaluation_io.OutputMetaDataEntry, '_create_output',
+                             autospec=True) as mkCreate:
+            value, new_args = entry.create_output(input_data, fill_value, *args)
+            assert value == mkCreate.return_value
+            assert new_args == args[1:]
+            assert mkCreate.call_args_list == [mk.call(entry, args[0], input_data, fill_value)]
+
 
 class TestOutputMetaData:
     def test___init__(self):
@@ -2876,10 +3056,90 @@ class TestOutputMetaData:
             assert _output._pos == index
 
         # Test set
-        outputs = {f"new_y{idx}": evaluation_io.OutputMetaDataEntry(f"new_y{idx}", idx) for idx in range(3)}
+        outputs = {f"new_y{idx}": evaluation_io.OutputMetaDataEntry(f"new_y{idx}", idx)
+                   for idx in range(3)}
         meta_data.outputs = outputs
         assert meta_data.data == outputs
         assert meta_data.outputs == outputs
+
+    def test__create_outputs(self):
+        meta_data = evaluation_io.OutputMetaData.create_defaults(3)
+        input_data = mk.MagicMock()
+        fill_value = mk.MagicMock()
+        args = [mk.MagicMock() for _ in range(3)]
+
+        names = list(meta_data.data.keys())
+        entries = [mk.MagicMock() for _ in range(3)]
+        new_entries = {name: entries[idx]
+                       for idx, name in enumerate(names)}
+        true_outputs = evaluation_io.Outputs(new_entries)
+
+        # No error
+        new_args = [(mk.MagicMock(), mk.MagicMock()) for _ in range(2)]
+        new_args.append(tuple())
+        outputs = [(entries[idx], new_args[idx]) for idx in range(3)]
+        with mk.patch.object(evaluation_io.OutputMetaDataEntry, 'create_output',
+                             autospec=True, side_effect=outputs) as mkCreate:
+            assert meta_data._create_outputs(input_data, fill_value, *args) ==\
+                true_outputs
+            assert mkCreate.call_args_list == [
+                mk.call(meta_data.data[names[0]], input_data, fill_value, *args),
+                mk.call(meta_data.data[names[1]], input_data, fill_value, *new_args[0]),
+                mk.call(meta_data.data[names[2]], input_data, fill_value, *new_args[1]),
+            ]
+
+        # Error
+        new_args = [(mk.MagicMock(), mk.MagicMock()) for _ in range(3)]
+        outputs = [(entries[idx], new_args[idx]) for idx in range(3)]
+        with mk.patch.object(evaluation_io.OutputMetaDataEntry, 'create_output',
+                             autospec=True, side_effect=outputs) as mkCreate:
+            with pytest.raises(RuntimeError):
+                meta_data._create_outputs(input_data, fill_value, *args)
+            assert mkCreate.call_args_list == [
+                mk.call(meta_data.data[names[0]], input_data, fill_value, *args),
+                mk.call(meta_data.data[names[1]], input_data, fill_value, *new_args[0]),
+                mk.call(meta_data.data[names[2]], input_data, fill_value, *new_args[1]),
+            ]
+
+    def test_get_outputs(self):
+        inputs = evaluation_io.EvaluationInputs(mk.MagicMock(), mk.MagicMock(), mk.MagicMock())
+        results= [mk.MagicMock() for _ in range(3)]
+        optional = evaluation_io.Optional(mk.MagicMock())
+        with mk.patch.object(evaluation_io.OutputMetaData, '_create_outputs',
+                             autospec=True) as mkCreate:
+            with mk.patch.object(evaluation_io.EvaluationInputs, 'data',
+                                 new_callable=mk.PropertyMock) as mkData:
+                with mk.patch.object(evaluation_io.EvaluationInputs, 'optional',
+                                     new_callable=mk.PropertyMock) as mkOptional:
+                    with mk.patch.object(evaluation_io.Optional, 'fill_value',
+                                         new_callable=mk.PropertyMock) as mkFill:
+                        mkOptional.return_value = optional
+
+                        # No adjustment
+                        meta_data = evaluation_io.OutputMetaData.create_defaults(3)
+                        assert meta_data.get_outputs(inputs, results) ==\
+                            mkCreate.return_value
+                        assert mkCreate.call_args_list == \
+                            [mk.call(meta_data, mkData.return_value,
+                                     mkFill.return_value, *results)]
+                        assert mkData.call_args_list == [mk.call()]
+                        assert mkFill.call_args_list == [mk.call()]
+                        assert mkOptional.call_args_list == [mk.call()]
+                        mkCreate.reset_mock()
+                        mkData.reset_mock()
+                        mkFill.reset_mock()
+                        mkOptional.reset_mock()
+
+                        # Adjustment
+                        meta_data = evaluation_io.OutputMetaData.create_defaults(1)
+                        assert meta_data.get_outputs(inputs, results) ==\
+                            mkCreate.return_value
+                        assert mkCreate.call_args_list == \
+                            [mk.call(meta_data, mkData.return_value,
+                                     mkFill.return_value, *(results,))]
+                        assert mkData.call_args_list == [mk.call()]
+                        assert mkFill.call_args_list == [mk.call()]
+                        assert mkOptional.call_args_list == [mk.call()]
 
 
 class TestMetaData:
@@ -3229,7 +3489,7 @@ class TestMetaData:
 
     def test_prepare_inputs(self):
         meta_data = evaluation_io.MetaData(mk.MagicMock(), mk.MagicMock(),
-                                              mk.MagicMock())
+                                           mk.MagicMock())
         params = mk.MagicMock()
         model = mk.MagicMock()
         args = (mk.MagicMock(), mk.MagicMock())
@@ -3245,3 +3505,23 @@ class TestMetaData:
                     [mk.call(meta_data, params, model, mkInputs.return_value)]
                 assert mkInputs.call_args_list == \
                     [mk.call(meta_data, *args, **kwargs)]
+
+    def test_prepare_outputs(self):
+        output_data = evaluation_io.OutputMetaData.create_defaults(3)
+        n_models = mk.MagicMock()
+        meta_data = evaluation_io.MetaData(mk.MagicMock(), mk.MagicMock(),
+                                           output_data, n_models=n_models)
+        inputs = mk.MagicMock()
+        results = mk.MagicMock()
+
+        outputs = evaluation_io.Outputs(mk.MagicMock())
+        with mk.patch.object(evaluation_io.OutputMetaData, 'get_outputs',
+                             autospec=True, return_value=outputs) as mkGet:
+            with mk.patch.object(evaluation_io.Outputs, 'prepare_outputs',
+                                 autospec=True) as mkPrepare:
+                assert meta_data.prepare_outputs(inputs, results) ==\
+                    mkPrepare.return_value
+                assert mkPrepare.call_args_list == \
+                    [mk.call(outputs, n_models, inputs)]
+                assert mkGet.call_args_list == \
+                    [mk.call(output_data, inputs, results)]

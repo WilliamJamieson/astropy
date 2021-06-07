@@ -930,21 +930,39 @@ class Optional(object):
                                'have been passed, argument pass through is off.')
 
 
+# TODO: add used bounding box data
 class InputData(object):
-    def __init__(self, format_info: list=None,
+    def __init__(self, shape: tuple=None,
+                 format_info: list=None,
                  valid_index: np.ndarray=None,
-                 all_out: bool=None):
+                 all_out: bool=None,
+                 with_bounding_box: bool=False):
+        self._shape = shape
         self._format_info = format_info
         self._valid_index = valid_index
         self._all_out = all_out
+        self._with_bounding_box = with_bounding_box
 
     def __eq__(self, this):
         if isinstance(this, InputData):
-            return (self.format_info == this.format_info) and \
+            return (self.shape == this.shape) and \
+                (self.format_info == this.format_info) and \
                 (self.valid_index == this.valid_index).all() and \
-                (self.all_out == this.all_out)
+                (self.all_out == this.all_out) and \
+                (self.with_bounding_box == this.with_bounding_box)
         else:
             return False
+
+    @property
+    def shape(self) -> tuple:
+        if self._shape is None:
+            return ()
+        else:
+            return self._shape
+
+    @shape.setter
+    def shape(self, value):
+        self._shape = value
 
     @property
     def format_info(self) -> list:
@@ -979,13 +997,23 @@ class InputData(object):
     def all_out(self, value):
         self._all_out = value
 
+    @property
+    def with_bounding_box(self) -> bool:
+        return self._with_bounding_box
+
+    @with_bounding_box.setter
+    def with_bounding_box(self, value):
+        self._with_bounding_box = value
+
     def copy(self) -> 'InputData':
         return deepcopy(self)
 
-    def reduce_to_bounding_box(self, valid_index, all_out: bool) -> 'InputData':
+    def reduce_to_bounding_box(self, valid_index, all_out: bool, input_shape: tuple) -> 'InputData':
         new = self.copy()
         new.valid_index = valid_index
         new.all_out = all_out
+        new.shape = input_shape
+        new.with_bounding_box = True
 
         return new
 
@@ -1011,6 +1039,10 @@ class EvaluationInputs(object):
     @optional.setter
     def optional(self, value):
         self._optional = value
+
+    @property
+    def model_set_axis(self) -> int:
+        return self._optional.model_set_axis
 
     @property
     def data(self) -> InputData:
@@ -1087,7 +1119,7 @@ class EvaluationInputs(object):
                                               self._optional.model_set_axis)
         self.format_info = format_info
 
-    def reduce_to_bounding_box(self, valid_index, all_out: bool):
+    def reduce_to_bounding_box(self, valid_index, all_out: bool, input_shape: tuple):
         """
         Reduce the inputs in this object down to just those in the bounding_box,
         and record where valid indices are located.
@@ -1101,7 +1133,7 @@ class EvaluationInputs(object):
             If all the indices will be used
         """
         self.inputs = self._inputs.reduce_to_bounding_box(valid_index, all_out)
-        self.data = self._data.reduce_to_bounding_box(valid_index, all_out)
+        self.data = self._data.reduce_to_bounding_box(valid_index, all_out, input_shape)
 
     def _equivalencies(self, model) -> dict:
         # If a leaflist is provided that means this is in the context of
@@ -1132,18 +1164,6 @@ class EvaluationInputs(object):
 
 
 class OutputEntry(IoEntry):
-    def __init__(self, name: str, value, index: int):
-        super().__init__(name, value)
-        self._index = index
-
-    @property
-    def index(self) -> int:
-        return self._index
-
-    @index.setter
-    def index(self, value):
-        self._index = value
-
     @property
     def scalar(self):
         """
@@ -1163,26 +1183,25 @@ class OutputEntry(IoEntry):
             except ValueError:
                 return self.scalar
 
-    def _check_broadcast(self, format_info):
+    def _check_broadcast(self, format_info, index: int):
         try:
             return check_broadcast(*format_info)
         except (IndexError, TypeError):
-            return format_info[self._index]
+            return format_info[index]
 
-    def prepare_output_single_model(self, format_info) -> "OutputEntry":
-        broadcast_shape = self._check_broadcast(format_info)
+    def prepare_output_single_model(self, format_info, index: int) -> "OutputEntry":
+        broadcast_shape = self._check_broadcast(format_info, index)
 
         if broadcast_shape is None:
             return self
         else:
-            return OutputEntry(self.name, self._new_output(broadcast_shape), self._index)
+            return OutputEntry(self.name, self._new_output(broadcast_shape))
 
-    def prepare_output_model_set(self, pivots: list, model_set_axis: int) -> "OutputEntry":
-        pivot = pivots[self._index]
+    def prepare_output_model_set(self, pivots: list, model_set_axis: int, index: int) -> "OutputEntry":
+        pivot = pivots[index]
         if pivot < self.value.ndim and pivot != model_set_axis:
             return OutputEntry(self.name,
-                               np.rollaxis(self.value, pivot, model_set_axis),
-                               self._index)
+                               np.rollaxis(self.value, pivot, model_set_axis))
         else:
             return self
 
@@ -1193,6 +1212,12 @@ class OutputEntry(IoEntry):
 class Outputs(object):
     def __init__(self, outputs: Dict[str, OutputEntry]):
         self._outputs = outputs
+
+    def __eq__(self, this):
+        if isinstance(this, Outputs):
+            return (self.outputs == this.outputs)
+        else:
+            return False
 
     @property
     def n_outputs(self) -> int:
@@ -1206,19 +1231,25 @@ class Outputs(object):
     def outputs(self, value):
         self._outputs = value
 
-    def prepare_outputs_single_model(self, format_info) -> "Outputs":
+    def prepare_outputs_single_model(self, format_info: list) -> "Outputs":
         outputs = {}
-        for name, output in self._outputs.items():
-            outputs[name] = output.prepare_output_single_model(format_info)
+        for index, (name, output) in enumerate(self._outputs.items()):
+            outputs[name] = output.prepare_output_single_model(format_info, index)
 
         return Outputs(outputs)
 
     def prepare_outputs_model_set(self, pivots: list, model_set_axis: int) -> "Outputs":
         outputs = {}
-        for name, output in self._outputs.items():
-            outputs[name] = output.prepare_output_model_set(pivots, model_set_axis)
+        for index, (name, output) in enumerate(self._outputs.items()):
+            outputs[name] = output.prepare_output_model_set(pivots, model_set_axis, index)
 
         return Outputs(outputs)
+
+    def prepare_outputs(self, n_models: int, inputs: EvaluationInputs) -> "Outputs":
+        if n_models == 1:
+            return self.prepare_outputs_single_model(inputs.format_info)
+        else:
+            return self.prepare_outputs_model_set(inputs.format_info, inputs.model_set_axis)
 
 
 class IoMetaDataEntry(object):
@@ -1775,7 +1806,7 @@ class InputMetaData(IoMetaData):
 
         return self._create_inputs(*args, **input_kwargs), kwargs
 
-    def _outside(self, n_models: int, model_set_axis: int, inputs: EvaluationInputs) -> Tuple[np.ndarray, bool]:
+    def _outside(self, n_models: int, model_set_axis: int, inputs: EvaluationInputs) -> Tuple[np.ndarray, bool, tuple]:
         """
         Helper function for self._get_valid_index
             Deterimines indices of input arrays that are in/out of bounding
@@ -1803,10 +1834,10 @@ class InputMetaData(IoMetaData):
         for _input in self._data.values():
             outside, all_out = _input.update_outside(outside, all_out, inputs)
 
-        return outside, all_out
+        return outside, all_out, input_shape
 
     def _get_valid_index(self, n_models: int, model_set_axis: int, inputs: EvaluationInputs) \
-            -> Tuple[Tuple[np.ndarray, ...], bool]:
+            -> Tuple[Tuple[np.ndarray, ...], bool, tuple]:
         """
         Helper function for self.enforce_bounding_box
             Generates the list of valid indices for the input arrays
@@ -1825,14 +1856,14 @@ class InputMetaData(IoMetaData):
             if all of inputs are inside/outside bounding_box.
         )
         """
-        outside_inputs, all_out = self._outside(n_models, model_set_axis, inputs)
+        outside_inputs, all_out, input_shape = self._outside(n_models, model_set_axis, inputs)
 
         # get an array with indices of valid inputs
         valid_index = np.atleast_1d(np.logical_not(outside_inputs)).nonzero()
         if len(valid_index[0]) == 0:
             all_out = True
 
-        return valid_index, all_out
+        return valid_index, all_out, input_shape
 
     def enforce_bounding_box(self, n_models: int, model_set_axis: int, inputs: EvaluationInputs):
         """
@@ -1847,8 +1878,8 @@ class InputMetaData(IoMetaData):
         """
         # NOTE: this is to replace prepare_bounding_box_inputs
         if inputs.optional.with_bounding_box:
-            valid_index, all_out = self._get_valid_index(n_models, model_set_axis, inputs)
-            inputs.reduce_to_bounding_box(valid_index, all_out)
+            valid_index, all_out, input_shape = self._get_valid_index(n_models, model_set_axis, inputs)
+            inputs.reduce_to_bounding_box(valid_index, all_out, input_shape)
 
 
 class OptionalMetaDataEntry(IoMetaDataEntry):
@@ -2056,6 +2087,39 @@ class OutputMetaDataEntry(IoMetaDataEntry):
         else:
             raise ValueError(f'{input_value} is not a valid way to set an output')
 
+    @staticmethod
+    def _create_base_result(input_data: InputData, fill_value) -> np.ndarray:
+        return np.zeros(input_data.shape) + fill_value
+
+    @staticmethod
+    def _modifly_result(result: np.ndarray, value: np.ndarray, input_data: InputData, fill_value) -> np.ndarray:
+        if fill_value.shape:
+            result[input_data.valid_index] = value
+        else:
+            result = np.array(value)
+
+        return result
+
+    def _create_bounding_box_output(self, value: np.ndarray, input_data: InputData, fill_value) -> OutputEntry:
+        result = self._create_base_result(input_data, fill_value)
+
+        if input_data.all_out:
+            result = self._modifly_result(result, value, input_data, fill_value)
+
+        return OutputEntry(self.name, result)
+
+    def _create_output(self, value: np.ndarray, input_data: InputData, fill_value) -> OutputEntry:
+        if input_data.with_bounding_box:
+            return self._create_bounding_box_output(value, input_data, fill_value)
+        else:
+            return OutputEntry(self.name, value)
+
+    def create_output(self, input_data: InputData, fill_value, *args) -> Tuple[OutputEntry, tuple]:
+        args = list(args)
+        value = self._create_output(args.pop(0), input_data, fill_value)
+
+        return value, tuple(args)
+
 
 class OutputMetaData(IoMetaData):
     _data_entry = OutputMetaDataEntry
@@ -2106,6 +2170,24 @@ class OutputMetaData(IoMetaData):
     def outputs(self, value):
         self.data = value
         self.validate()
+
+    def _create_outputs(self, input_data: InputData, fill_value, *args) -> Outputs:
+        outputs = {}
+        for name, _output in self._data.items():
+            outputs[name], args = _output.create_output(input_data, fill_value, *args)
+
+        if len(args) > 0:
+            raise RuntimeError('Too many outputs have been generated by model')
+
+        return Outputs(outputs)
+
+    def get_outputs(self, inputs: EvaluationInputs, results) -> Outputs:
+        input_data = inputs.data
+        fill_value = inputs.optional.fill_value
+
+        if self._n_outputs == 1:
+            results = (results,)
+        return self._create_outputs(input_data, fill_value, *results)
 
 
 class MetaData(object):
@@ -2311,3 +2393,8 @@ class MetaData(object):
         self.process_inputs(params, model, inputs)
 
         return inputs
+
+    def prepare_outputs(self, inputs: EvaluationInputs, results) -> Outputs:
+        outputs = self._outputs.get_outputs(inputs, results)
+
+        return outputs.prepare_outputs(self._n_models, inputs)
