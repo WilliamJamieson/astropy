@@ -7,6 +7,7 @@ from typing import Dict, List, Tuple, Union, TYPE_CHECKING
 from copy import deepcopy
 from itertools import chain
 
+from astropy.utils import isiterable
 from astropy.utils.shapes import check_broadcast, IncompatibleShapeError
 from astropy.modeling.utils import _BoundingBox, _combine_equivalency_dict
 from astropy.units import UnitBase, dimensionless_unscaled, Quantity, UnitsError
@@ -99,6 +100,10 @@ class InputEntry(IoEntry):
             return self._value.reshape((1,))
         else:
             return self._value
+
+    @property
+    def is_quantity(self) -> bool:
+        return isinstance(self._value, Quantity)
 
     def _array_shape(self, array_shape: bool) -> tuple:
         """
@@ -504,6 +509,14 @@ class InputEntry(IoEntry):
 
         return InputEntry(self.name, input_value), pivot
 
+    def _reduce_value_to_bounding_box(self, valid_index):
+        unit = getattr(self._value, 'unit', None)
+        value = np.array(self.input_array)[valid_index]
+        if unit is not None:
+            value = Quantity(value, unit, copy=False)
+
+        return value
+
     def reduce_to_bounding_box(self, valid_index) -> 'InputEntry':
         """
         Reduces this evaluation input to just the indices computed to
@@ -527,7 +540,7 @@ class InputEntry(IoEntry):
         """
 
         # Always requires scalars to be arrays to work, so using input_array version
-        return InputEntry(self._name, np.array(self.input_array)[valid_index])
+        return InputEntry(self._name, self._reduce_value_to_bounding_box(valid_index))
 
     def _convert_unit_value(self, value: Quantity, unit: UnitBase,
                             equivalencies: dict, strict: bool):
@@ -594,6 +607,10 @@ class Inputs(object):
             return (self.inputs == this.inputs)
         else:
             return False
+
+    @property
+    def are_quantity(self) -> bool:
+        return any([entry.is_quantity for entry in self._inputs.values()])
 
     @property
     def names(self) -> Tuple[str]:
@@ -930,7 +947,6 @@ class Optional(object):
                                'have been passed, argument pass through is off.')
 
 
-# TODO: add used bounding box data
 class InputData(object):
     def __init__(self, shape: tuple=None,
                  format_info: list=None,
@@ -1208,6 +1224,12 @@ class OutputEntry(IoEntry):
     def prepare_input(self) -> InputEntry:
         return InputEntry(self.name, self.value)
 
+    def process_units(self, return_units: dict) -> "OutputEntry":
+        unit = return_units.get(self._name, None)
+        value = Quantity(self._value, unit, subok=True)
+
+        return OutputEntry(self._name, value)
+
 
 class Outputs(object):
     def __init__(self, outputs: Dict[str, OutputEntry]):
@@ -1220,6 +1242,10 @@ class Outputs(object):
             return False
 
     @property
+    def names(self) -> List[str]:
+        return list(self._outputs.keys())
+
+    @property
     def n_outputs(self) -> int:
         return len(self._outputs)
 
@@ -1230,6 +1256,14 @@ class Outputs(object):
     @outputs.setter
     def outputs(self, value):
         self._outputs = value
+
+    @property
+    def scalars(self):
+        scalars = tuple([entry.scalar for entry in self._outputs.values()])
+        if self.n_outputs == 1:
+            return scalars[0]
+        else:
+            return scalars
 
     def prepare_outputs_single_model(self, format_info: list) -> "Outputs":
         outputs = {}
@@ -1245,11 +1279,35 @@ class Outputs(object):
 
         return Outputs(outputs)
 
-    def prepare_outputs(self, n_models: int, inputs: EvaluationInputs) -> "Outputs":
+    def _prepare_outputs(self, n_models: int, inputs: EvaluationInputs) -> "Outputs":
         if n_models == 1:
             return self.prepare_outputs_single_model(inputs.format_info)
         else:
             return self.prepare_outputs_model_set(inputs.format_info, inputs.model_set_axis)
+
+    def _return_units(self, return_units) -> dict:
+        if self.n_outputs == 1 and not isiterable(return_units):
+            return {self.names[0]: return_units}
+        else:
+            return return_units
+
+    def _process_units(self, return_units: dict) -> "Outputs":
+        outputs = {}
+        for name, entry in self._outputs.items():
+            outputs[name] = entry.process_units(return_units)
+
+        return Outputs(outputs)
+
+    def process_units(self, inputs: EvaluationInputs, return_units) -> "Outputs":
+        if return_units and inputs.inputs.are_quantity:
+            return self._process_units(self._return_units(return_units))
+        else:
+            return self
+
+    def prepare_outputs(self, n_models: int, inputs: EvaluationInputs, return_units) -> "Outputs":
+        outputs = self._prepare_outputs(n_models, inputs)
+
+        return outputs.process_units(inputs, return_units)
 
 
 class IoMetaDataEntry(object):
@@ -1336,7 +1394,7 @@ class IoMetaData(object):
         if data is not None:
             self.data = data
 
-    def _fill_defaults(self, n_data: int):
+    def _fill_defaults(self, n_data: int, **kwargs):
         """
         Helper function for create_defaults
             Generates the required number of inputs under the standard
@@ -1361,7 +1419,7 @@ class IoMetaData(object):
             The number of required evaluation inputs for the model.
         """
         new = cls(n_data=n_data, **kwargs)
-        new._fill_defaults(n_data)
+        new._fill_defaults(n_data, **kwargs)
 
         return new
 
@@ -1610,20 +1668,26 @@ class InputMetaData(IoMetaData):
 
     def __init__(self, n_data: int,
                  inputs: Dict[str, InputMetaDataEntry] = None,
-                 bounding_box: _BoundingBox=None):
+                 bounding_box: _BoundingBox=None, **kwargs):
         super().__init__(inputs)
         self._n_inputs = n_data
         self.bounding_box = bounding_box
 
-    def _fill_defaults(self, n_data: int):
+    def _fill_defaults(self, n_data: int, **kwargs):
         """
         Helper function for create_defaults
             Generates the required number of inputs under the standard
             names.
         """
-        if n_data == 1:
+
+        if 'n_outputs' in kwargs:
+            n_outputs = kwargs['n_outputs']
+        else:
+            n_outputs = 1
+
+        if n_data == 1 and n_outputs == 1:
             self.inputs = ['x']
-        elif n_data == 2:
+        elif n_data == 2 and n_outputs == 1:
             self.inputs = ['x', 'y']
         else:
             self.inputs = [f'x{idx}' for idx in range(n_data)]
@@ -1957,7 +2021,7 @@ class OptionalMetaData(IoMetaData):
     def model_set_axis(self, value):
         self._model_set_axis = value
 
-    def _fill_defaults(self, n_data: int):
+    def _fill_defaults(self, n_data: int, **kwargs):
         """
         Helper function for create_defaults
             Generates the required number of inputs under the standard
@@ -2092,18 +2156,25 @@ class OutputMetaDataEntry(IoMetaDataEntry):
         return np.zeros(input_data.shape) + fill_value
 
     @staticmethod
-    def _modifly_result(result: np.ndarray, value: np.ndarray, input_data: InputData, fill_value) -> np.ndarray:
-        if fill_value.shape:
+    def _modify_unit(result: np.ndarray, value: np.ndarray) -> np.ndarray:
+        unit = getattr(value, 'unit', None)
+        if unit is not None:
+            result = Quantity(result, unit, copy=False)
+
+        return result
+
+    def _modifly_result(self, result: np.ndarray, value: np.ndarray, input_data: InputData, fill_value) -> np.ndarray:
+        if result.shape:
             result[input_data.valid_index] = value
         else:
             result = np.array(value)
 
-        return result
+        return self._modify_unit(result, value)
 
     def _create_bounding_box_output(self, value: np.ndarray, input_data: InputData, fill_value) -> OutputEntry:
         result = self._create_base_result(input_data, fill_value)
 
-        if input_data.all_out:
+        if not input_data.all_out:
             result = self._modifly_result(result, value, input_data, fill_value)
 
         return OutputEntry(self.name, result)
@@ -2125,18 +2196,28 @@ class OutputMetaData(IoMetaData):
     _data_entry = OutputMetaDataEntry
 
     def __init__(self, n_data: int,
-                 outputs: Dict[str, OutputMetaDataEntry] = None):
+                 outputs: Dict[str, OutputMetaDataEntry] = None, **kwargs):
         super().__init__(outputs)
         self._n_outputs = n_data
 
-    def _fill_defaults(self, n_data: int):
+    def _fill_defaults(self, n_data: int, **kwargs):
         """
         Helper function for create_defaults
             Generates the required number of outputs under the standard
             names.
         """
 
-        self.outputs = [f'y{idx}' for idx in range(n_data)]
+        if 'n_inputs' in kwargs:
+            n_inputs = kwargs['n_inputs']
+        else:
+            n_inputs = 0
+
+        if n_inputs == 1 and n_data == 1:
+            self.outputs = ['y']
+        elif n_inputs == 2 and n_data == 1:
+            self.outputs = ['z']
+        else:
+            self.outputs = [f'x{idx}' for idx in range(n_data)]
 
     @property
     def n_outputs(self) -> int:
@@ -2186,7 +2267,7 @@ class OutputMetaData(IoMetaData):
         fill_value = inputs.optional.fill_value
 
         if self._n_outputs == 1:
-            results = (results,)
+            results = [results,]
         return self._create_outputs(input_data, fill_value, *results)
 
 
@@ -2210,7 +2291,7 @@ class MetaData(object):
                         pass_optional: bool=False,
                         model_set_axis: int=0,
                         optional: OptionalMetaData=None):
-        inputs = InputMetaData.create_defaults(n_inputs)
+        inputs = InputMetaData.create_defaults(n_inputs, n_outputs=n_outputs)
 
         if optional is None:
             optional = OptionalMetaData.create_defaults(0, pass_optional=pass_optional,
@@ -2219,7 +2300,7 @@ class MetaData(object):
             optional.pass_optional = pass_optional
             optional.model_set_axis = model_set_axis
 
-        outputs = OutputMetaData.create_defaults(n_outputs)
+        outputs = OutputMetaData.create_defaults(n_outputs, n_inputs=n_inputs)
 
         return cls(inputs, optional, outputs, n_models, standard_broadcasting)
 
@@ -2394,7 +2475,7 @@ class MetaData(object):
 
         return inputs
 
-    def prepare_outputs(self, inputs: EvaluationInputs, results) -> Outputs:
+    def prepare_outputs(self, inputs: EvaluationInputs, return_units, results) -> Outputs:
         outputs = self._outputs.get_outputs(inputs, results)
 
-        return outputs.prepare_outputs(self._n_models, inputs)
+        return outputs.prepare_outputs(self._n_models, inputs, return_units)

@@ -81,6 +81,13 @@ class TestInputEntry:
         assert entry.input_array.shape == entry.value.shape
         assert (entry.input_array == entry.value).all()
 
+    def test_is_quantity(self):
+        entry = evaluation_io.InputEntry('name', 1)
+        assert not entry.is_quantity
+
+        entry = evaluation_io.InputEntry('name', 1*u.m)
+        assert entry.is_quantity
+
     def test__array_shape(self):
         entry = evaluation_io.InputEntry('name', 1)
         assert entry._array_shape(True) == (1,)
@@ -390,16 +397,31 @@ class TestInputEntry:
                     assert mkMax.call_args_list == \
                         [mk.call(entry, mkGet.return_value, params, model_set_axis)]
 
-    def test_reduce_to_bounding_box(self):
-        entry = evaluation_io.InputEntry('name', np.arange(0, 5))
+    def test__reduce_value_to_bounding_box(self):
         valid_index = [1, 3, 4]
-        assert entry.reduce_to_bounding_box(valid_index) == \
-            evaluation_io.InputEntry('name', [1, 3, 4])
+        entry = evaluation_io.InputEntry('name', np.arange(0, 5))
+        assert (entry._reduce_value_to_bounding_box(valid_index) ==
+                   np.array([1, 3, 4])).all()
+        entry = evaluation_io.InputEntry('name', np.arange(0, 5)*u.m)
+        assert (entry._reduce_value_to_bounding_box(valid_index) ==
+                   np.array([1, 3, 4])*u.m).all()
 
-        entry = evaluation_io.InputEntry('name', 1)
         valid_index = [0]
-        assert entry.reduce_to_bounding_box(valid_index) == \
-            evaluation_io.InputEntry('name', 1)
+        entry = evaluation_io.InputEntry('name', 1)
+        assert entry._reduce_value_to_bounding_box(valid_index) == 1
+        entry = evaluation_io.InputEntry('name', 1*u.m)
+        assert entry._reduce_value_to_bounding_box(valid_index) == 1*u.m
+
+    def test_reduce_to_bounding_box(self):
+        entry = evaluation_io.InputEntry('name', mk.MagicMock())
+        valid_index = mk.MagicMock()
+
+        with mk.patch.object(evaluation_io.InputEntry,
+                             '_reduce_value_to_bounding_box', autospec=True) as mkReduce:
+            assert entry.reduce_to_bounding_box(valid_index) == \
+                evaluation_io.InputEntry('name', mkReduce.return_value)
+            assert mkReduce.call_args_list == \
+                [mk.call(entry, valid_index)]
 
     def test__convert_unit_value(self):
         value = u.Quantity(mk.MagicMock())
@@ -607,8 +629,36 @@ class TestInputs:
         # Not matching type
         assert not (inputs1 == mk.MagicMock())
 
+    def test_are_quantity(self):
+        entries = {f'x{idx}': evaluation_io.InputEntry(f'x{idx}', mk.MagicMock())
+                   for idx in range(3)}
+        inputs = evaluation_io.Inputs(entries)
+
+        with mk.patch.object(evaluation_io.InputEntry, 'is_quantity',
+                             new_callable=mk.PropertyMock) as mkQuantity:
+            # True
+            mkQuantity.side_effect = [True, True, True]
+            assert inputs.are_quantity == True
+            mkQuantity.side_effect = [False, True, True]
+            assert inputs.are_quantity == True
+            mkQuantity.side_effect = [True, False, True]
+            assert inputs.are_quantity == True
+            mkQuantity.side_effect = [True, True, False]
+            assert inputs.are_quantity == True
+            mkQuantity.side_effect = [False, False, True]
+            assert inputs.are_quantity == True
+            mkQuantity.side_effect = [False, True, False]
+            assert inputs.are_quantity == True
+            mkQuantity.side_effect = [True, False, False]
+            assert inputs.are_quantity == True
+
+            # False
+            mkQuantity.side_effect = [False, False, False]
+            assert inputs.are_quantity == False
+
     def test_names(self):
-        entries = {f'x{idx}': mk.MagicMock() for idx in range(3)}
+        entries = {f'x{idx}': evaluation_io.InputEntry(f'x{idx}', mk.MagicMock())
+                   for idx in range(3)}
         inputs = evaluation_io.Inputs(entries)
 
         assert inputs.names == tuple([f'x{idx}' for idx in range(3)])
@@ -645,48 +695,55 @@ class TestInputs:
             assert mkDeepcopy.call_args_list == [mk.call(inputs)]
 
     def test__check_input_shape(self):
-        entries = {f'x{idx}': mk.MagicMock() for idx in range(3)}
+        entries = {f'x{idx}': evaluation_io.InputEntry(f'x{idx}', mk.MagicMock())
+                   for idx in range(3)}
         inputs = evaluation_io.Inputs(entries)
-
-        check_args = [entry.check_input_shape.return_value for entry in entries.values()]
 
         n_models = mk.MagicMock()
         model_set_axis = mk.MagicMock()
         array_shape = mk.MagicMock()
 
         effects = [mk.MagicMock(), None]
+        shapes = [mk.MagicMock() for _ in entries.values()]
         with mk.patch.object(evaluation_io, 'check_broadcast', autospec=True,
                              side_effect=effects) as mkCheck:
-            # Success
-            assert inputs.check_input_shape(n_models, model_set_axis,
-                                            array_shape) == effects[0]
-            for index, entry in enumerate(entries.values()):
-                assert entry.check_input_shape.call_args_list == \
-                    [mk.call(n_models, model_set_axis, array_shape)]
-                entry.check_input_shape.reset_mock()
-            assert mkCheck.call_args_list == [mk.call(*check_args)]
-            mkCheck.reset_mock()
+            with mk.patch.object(evaluation_io.InputEntry, 'check_input_shape',
+                                 autospec=True, side_effect=shapes) as mkShape:
+                # Success
+                assert inputs.check_input_shape(n_models, model_set_axis,
+                                                array_shape) == effects[0]
+                assert mkCheck.call_args_list == [mk.call(*shapes)]
+                assert mkShape.call_args_list == \
+                    [mk.call(entry, n_models, model_set_axis, array_shape)
+                     for entry in entries.values()]
+                mkCheck.reset_mock()
 
-            # Fail
-            with pytest.raises(ValueError):
-                inputs.check_input_shape(n_models, model_set_axis, array_shape)
-            for index, entry in enumerate(entries.values()):
-                assert entry.check_input_shape.call_args_list == \
-                    [mk.call(n_models, model_set_axis, array_shape)]
-                entry.check_input_shape.reset_mock()
-            assert mkCheck.call_args_list == [mk.call(*check_args)]
+            with mk.patch.object(evaluation_io.InputEntry, 'check_input_shape',
+                                 autospec=True, side_effect=shapes) as mkShape:
+                # Fail
+                with pytest.raises(ValueError):
+                    inputs.check_input_shape(n_models, model_set_axis, array_shape)
+                assert mkCheck.call_args_list == [mk.call(*shapes)]
+                assert mkShape.call_args_list == \
+                    [mk.call(entry, n_models, model_set_axis, array_shape)
+                     for entry in entries.values()]
 
     def test__get_broadcasts(self):
-        entries = {f'x{idx}': mk.MagicMock() for idx in range(3)}
+        entries = {f'x{idx}': evaluation_io.InputEntry(f'x{idx}', mk.MagicMock())
+                   for idx in range(3)}
         inputs = evaluation_io.Inputs(entries)
 
         params = mk.MagicMock()
         standard_broadcasting = mk.MagicMock()
 
-        broadcasts = inputs._get_broadcasts(params, standard_broadcasting)
-        assert broadcasts == [entry.broadcast.return_value for entry in entries.values()]
-        for entry in entries.values():
-            assert entry.broadcast.call_args_list == [mk.call(params, standard_broadcasting)]
+        input_broadcasts = [mk.MagicMock() for _ in entries]
+        with mk.patch.object(evaluation_io.InputEntry, 'broadcast',
+                             autospec=True, side_effect=input_broadcasts) as mkBroadcast:
+            assert inputs._get_broadcasts(params, standard_broadcasting) ==\
+                input_broadcasts
+            assert mkBroadcast.call_args_list == \
+                [mk.call(entry, params, standard_broadcasting)
+                 for entry in entries.values()]
 
     def test__extend_broadcasts(self):
         # No inputs
@@ -709,7 +766,8 @@ class TestInputs:
         assert broadcasts == [(1,)]
 
         # Some inputs
-        entries = {f'x{idx}': mk.MagicMock() for idx in range(3)}
+        entries = {f'x{idx}': evaluation_io.InputEntry(f'x{idx}', mk.MagicMock())
+                   for idx in range(3)}
         inputs = evaluation_io.Inputs(entries)
 
         broadcasts = [(1,), (2,), (3,)]
@@ -801,27 +859,29 @@ class TestInputs:
                 assert mkInputs.call_args_list == [mk.call(), mk.call()]
 
     def test__reduce_to_bounding_box(self):
-        entries = {f'x{idx}': mk.MagicMock() for idx in range(3)}
+        entries = {f'x{idx}': evaluation_io.InputEntry(f'x{idx}', mk.MagicMock())
+                   for idx in range(3)}
         inputs = evaluation_io.Inputs(entries)
 
         valid_index = mk.MagicMock()
-        all_out = mk.MagicMock()
-        reduced = inputs._reduce_to_bounding_box(valid_index)
-        assert isinstance(reduced, evaluation_io.Inputs)
-        assert len(reduced.inputs) == len(entries) == 3
-        for name, entry in entries.items():
-            assert name in reduced.inputs
-            assert reduced.inputs[name] == entry.reduce_to_bounding_box.return_value
-            assert entry.reduce_to_bounding_box.call_args_list == \
-                [mk.call(valid_index)]
-        for name, entry in reduced.inputs.items():
-            assert name in entries
-            assert entries[name].reduce_to_bounding_box.return_value == entry
-            assert entries[name].reduce_to_bounding_box.call_args_list == \
-                [mk.call(valid_index)]
+        reduced_entries = [mk.MagicMock() for _ in entries]
+        with mk.patch.object(evaluation_io.InputEntry, 'reduce_to_bounding_box',
+                             autospec=True, side_effect=reduced_entries) as mkReduce:
+            reduced = inputs._reduce_to_bounding_box(valid_index)
+            assert isinstance(reduced, evaluation_io.Inputs)
+            assert len(reduced.inputs) == len(entries) == 3
+            for index, name in enumerate(entries.keys()):
+                assert name in reduced.inputs
+                assert reduced.inputs[name] == reduced_entries[index]
+            for index, (name, entry) in enumerate(reduced.inputs.items()):
+                assert name in entries
+                assert entry == reduced_entries[index]
+            assert mkReduce.call_args_list == \
+                [mk.call(entry, valid_index) for entry in entries.values()]
 
     def test_reduce_to_bounding_box(self):
-        entries = {f'x{idx}': mk.MagicMock() for idx in range(3)}
+        entries = {f'x{idx}': evaluation_io.InputEntry(f'x{idx}', mk.MagicMock())
+                   for idx in range(3)}
         inputs = evaluation_io.Inputs(entries)
 
         valid_index = mk.MagicMock()
@@ -1756,16 +1816,18 @@ class TestIoMetaData:
     def test__fill_defaults(self):
         meta_data = evaluation_io.IoMetaData()
 
+        kwargs = {'test': mk.MagicMock()}
         with pytest.raises(NotImplementedError):
-            meta_data._fill_defaults(mk.MagicMock())
+            meta_data._fill_defaults(mk.MagicMock(), **kwargs)
 
     def test_create_defaults(self):
         n_data = mk.MagicMock()
+        kwargs = {'test': mk.MagicMock()}
         with mk.patch.object(evaluation_io.IoMetaData, '_fill_defaults',
                              autospec=True) as mkFill:
-            meta_data = evaluation_io.IoMetaData.create_defaults(n_data)
+            meta_data = evaluation_io.IoMetaData.create_defaults(n_data, **kwargs)
             assert isinstance(meta_data, evaluation_io.IoMetaData)
-            assert mkFill.call_args_list == [mk.call(meta_data, n_data)]
+            assert mkFill.call_args_list == [mk.call(meta_data, n_data, **kwargs)]
 
     def test_validate(self):
         meta_data = evaluation_io.IoMetaData()
@@ -2115,12 +2177,12 @@ class TestInputMetaData:
                 mkBbox.call_args_list == [mk.call(bbox)]
 
     def test__fill_defaults(self):
-        # n_inputs = 0
+        # n_inputs = 0, n_outputs = 1
         meta_data = evaluation_io.InputMetaData(0)
         meta_data._fill_defaults(0)
         assert meta_data._n_inputs == 0 == len(meta_data._data)
 
-        # n_inputs = 1
+        # n_inputs = 1, n_outputs = 1
         meta_data = evaluation_io.InputMetaData(1)
         meta_data._fill_defaults(1)
         assert meta_data._n_inputs == 1 == len(meta_data._data)
@@ -2131,7 +2193,7 @@ class TestInputMetaData:
         assert _input._pos == 0
         assert _input._bounding_box is None
 
-        # n_inputs = 2
+        # n_inputs = 2, n_outputs = 1
         meta_data = evaluation_io.InputMetaData(2)
         meta_data._fill_defaults(2)
         assert meta_data._n_inputs == 2 == len(meta_data._data)
@@ -2148,7 +2210,7 @@ class TestInputMetaData:
         assert _input._pos == 1
         assert _input._bounding_box is None
 
-        # n_inputs >= 3
+        # n_inputs >= 3, n_outputs = 1
         for idx in range(3, 5):
             meta_data = evaluation_io.InputMetaData(idx)
             meta_data._fill_defaults(idx)
@@ -2159,6 +2221,19 @@ class TestInputMetaData:
                 assert _input._name == name
                 assert _input._pos == index
                 assert _input._bounding_box is None
+
+        # n_inputs >= 1, n_outputs > 1
+        for n_outputs in range(2, 5):
+            for idx in range(1, 5):
+                meta_data = evaluation_io.InputMetaData(idx)
+                meta_data._fill_defaults(idx, n_outputs=n_outputs)
+                assert meta_data._n_inputs == idx == len(meta_data._data)
+                for index, (name, _input) in enumerate(meta_data._data.items()):
+                    assert name == f'x{index}'
+                    assert isinstance(_input, evaluation_io.InputMetaDataEntry)
+                    assert _input._name == name
+                    assert _input._pos == index
+                    assert _input._bounding_box is None
 
     def test_n_inputs(self):
         n_inputs = mk.MagicMock()
@@ -2858,6 +2933,21 @@ class TestOutputMetaDataEntry:
                 assert mkZeros.call_args_list == [mk.call(mkShape.return_value)]
                 assert mkShape.call_args_list == [mk.call()]
 
+    def test__modify_unit(self):
+        entry = evaluation_io.OutputMetaDataEntry('name')
+        result = mk.MagicMock()
+
+        with mk.patch.object(evaluation_io, 'Quantity',
+                             autospec=True) as mkQuantity:
+            # No unit
+            assert entry._modify_unit(result, np.asanyarray(1)) == result
+            assert mkQuantity.call_args_list == []
+
+            # Unit
+            assert entry._modify_unit(result, 1*u.m) == mkQuantity.return_value
+            assert mkQuantity.call_args_list ==\
+                [mk.call(result, u.m, copy=False)]
+
     def test__modify_result(self):
         entry = evaluation_io.OutputMetaDataEntry('name')
         result = mk.MagicMock()
@@ -2865,27 +2955,34 @@ class TestOutputMetaDataEntry:
         input_data = evaluation_io.InputData(mk.MagicMock(), mk.MagicMock(), mk.MagicMock())
         fill_value = mk.MagicMock()
 
-        with mk.patch.object(evaluation_io.InputData, 'valid_index',
-                             new_callable=mk.PropertyMock) as mkValid:
-            with mk.patch.object(np, 'array', autospec=True) as mkArray:
-                # fill_value.shape is True
-                fill_value.shape = True
-                assert entry._modifly_result(result, value, input_data, fill_value) == \
-                    result
-                assert result.__setitem__.call_args_list == \
-                    [mk.call(mkValid.return_value, value)]
-                assert mkValid.call_args_list == [mk.call()]
-                assert mkArray.call_args_list == []
-                result.reset_mock()
-                mkValid.reset_mock()
+        with mk.patch.object(evaluation_io.OutputMetaDataEntry, '_modify_unit',
+                             autospec=True) as mkModify:
+            with mk.patch.object(evaluation_io.InputData, 'valid_index',
+                                 new_callable=mk.PropertyMock) as mkValid:
+                with mk.patch.object(np, 'array', autospec=True) as mkArray:
+                    # result.shape is True
+                    result.shape = True
+                    assert entry._modifly_result(result, value, input_data, fill_value) == \
+                        mkModify.return_value
+                    assert mkModify.call_args_list == \
+                        [mk.call(result, value)]
+                    assert result.__setitem__.call_args_list == \
+                        [mk.call(mkValid.return_value, value)]
+                    assert mkValid.call_args_list == [mk.call()]
+                    assert mkArray.call_args_list == []
+                    mkModify.reset_mock()
+                    result.reset_mock()
+                    mkValid.reset_mock()
 
-                # fill_value.shape is False
-                fill_value.shape = False
-                assert entry._modifly_result(result, value, input_data, fill_value) == \
-                    mkArray.return_value
-                assert result.__setitem__.call_args_list == []
-                assert mkValid.call_args_list == []
-                assert mkArray.call_args_list == [mk.call(value)]
+                    # result.shape is False
+                    result.shape = False
+                    assert entry._modifly_result(result, value, input_data, fill_value) == \
+                        mkModify.return_value
+                    assert mkModify.call_args_list == \
+                        [mk.call(mkArray.return_value, value)]
+                    assert result.__setitem__.call_args_list == []
+                    assert mkValid.call_args_list == []
+                    assert mkArray.call_args_list == [mk.call(value)]
 
     def test__create_bounding_box_output(self):
         entry = evaluation_io.OutputMetaDataEntry('name')
@@ -2899,8 +2996,8 @@ class TestOutputMetaDataEntry:
                                  '_create_base_result', autospec=True) as mkBase:
                 with mk.patch.object(evaluation_io.OutputMetaDataEntry,
                                      '_modifly_result', autospec=True) as mkModify:
-                    # Not all_out
-                    mkOut.return_value = False
+                    # all_out
+                    mkOut.return_value = True
                     assert entry._create_bounding_box_output(value, input_data, fill_value) ==\
                         evaluation_io.OutputEntry('name', mkBase.return_value)
                     assert mkOut.call_args_list == [mk.call()]
@@ -2909,14 +3006,14 @@ class TestOutputMetaDataEntry:
                     mkOut.reset_mock()
                     mkBase.reset_mock()
 
-                    # all_out
-                    mkOut.return_value = True
+                    # not all_out
+                    mkOut.return_value = False
                     assert entry._create_bounding_box_output(value, input_data, fill_value) ==\
                         evaluation_io.OutputEntry('name', mkModify.return_value)
                     assert mkOut.call_args_list == [mk.call()]
                     assert mkBase.call_args_list == [mk.call(input_data, fill_value)]
                     assert mkModify.call_args_list == \
-                        [mk.call(mkBase.return_value, value, input_data, fill_value)]
+                        [mk.call(entry, mkBase.return_value, value, input_data, fill_value)]
 
     def test__create_output(self):
         entry = evaluation_io.OutputMetaDataEntry('name')
@@ -2973,6 +3070,55 @@ class TestOutputMetaData:
             meta_data._data = mkInit.return_value
             mkInit.call_args_list == [mk.call(meta_data, outputs)]
 
+    def test__fill_defaults(self):
+        # n_outputs = 0, n_inputs = 0
+        meta_data = evaluation_io.OutputMetaData(0)
+        meta_data._fill_defaults(0)
+        assert meta_data._n_outputs == 0 == len(meta_data._data)
+
+        # n_outputs = 1, n_inputs = 1
+        meta_data = evaluation_io.OutputMetaData(1)
+        meta_data._fill_defaults(1, n_inputs=1)
+        assert meta_data._n_outputs == 1 == len(meta_data._data)
+        assert 'y' in meta_data._data
+        _output = meta_data._data['y']
+        assert isinstance(_output, evaluation_io.OutputMetaDataEntry)
+        assert _output._name == 'y'
+        assert _output._pos == 0
+
+        # n_outputs = 1, n_inputs = 2
+        meta_data = evaluation_io.OutputMetaData(1)
+        meta_data._fill_defaults(1, n_inputs=2)
+        assert meta_data._n_outputs == 1 == len(meta_data._data)
+        assert 'z' in meta_data._data
+        _output = meta_data._data['z']
+        assert isinstance(_output, evaluation_io.OutputMetaDataEntry)
+        assert _output._name == 'z'
+        assert _output._pos == 0
+
+        # n_outputs > 1, n_inputs > 1
+        for n_inputs in range(2, 5):
+            for idx in range(2, 5):
+                meta_data = evaluation_io.OutputMetaData(idx)
+                meta_data._fill_defaults(idx, n_inputs=n_inputs)
+                assert meta_data._n_outputs == idx == len(meta_data._data)
+                for index, (name, _output) in enumerate(meta_data._data.items()):
+                    assert name == f'x{index}'
+                    assert isinstance(_output, evaluation_io.OutputMetaDataEntry)
+                    assert _output._name == name
+                    assert _output._pos == index
+
+        # n_outputs >= 1, n_inputs = 0
+        for idx in range(1, 5):
+            meta_data = evaluation_io.OutputMetaData(idx)
+            meta_data._fill_defaults(idx)
+            assert meta_data._n_outputs == idx == len(meta_data._data)
+            for index, (name, _output) in enumerate(meta_data._data.items()):
+                assert name == f'x{index}'
+                assert isinstance(_output, evaluation_io.OutputMetaDataEntry)
+                assert _output._name == name
+                assert _output._pos == index
+
     def test_n_outputs(self):
         n_outputs = mk.MagicMock()
         meta_data = evaluation_io.OutputMetaData(n_outputs)
@@ -3004,7 +3150,7 @@ class TestOutputMetaData:
         assert meta_data.n_outputs == 3
         assert len(meta_data._data) == 3
         for index, (name, _output) in enumerate(meta_data._data.items()):
-            assert name == f'y{index}'
+            assert name == f'x{index}'
             assert isinstance(_output, evaluation_io.OutputMetaDataEntry)
             assert _output._name == name
             assert _output._pos == index
@@ -3015,7 +3161,7 @@ class TestOutputMetaData:
         assert meta_data.n_outputs == 4
         assert len(meta_data._data) == 4
         for index, (name, _output) in enumerate(meta_data._data.items()):
-            assert name == f'y{index}'
+            assert name == f'x{index}'
             assert isinstance(_output, evaluation_io.OutputMetaDataEntry)
             assert _output._name == name
             assert _output._pos == index
@@ -3050,7 +3196,7 @@ class TestOutputMetaData:
         # Test get
         assert meta_data.data == meta_data.outputs
         for index, (name, _output) in enumerate(meta_data._data.items()):
-            assert name == f'y{index}'
+            assert name == f'x{index}'
             assert isinstance(_output, evaluation_io.OutputMetaDataEntry)
             assert _output._name == name
             assert _output._pos == index
@@ -3187,22 +3333,22 @@ class TestMetaData:
                     assert meta_data._outputs == mkOutputs.return_value
                     assert meta_data._n_models == 1
                     assert meta_data._standard_broadcasting == True
-                    assert mkInputs.call_args_list == [mk.call(n_inputs)]
+                    assert mkInputs.call_args_list == [mk.call(n_inputs, n_outputs=1)]
                     assert mkOptional.call_args_list == \
                         [mk.call(0, pass_optional=False, model_set_axis=0)]
-                    assert mkOutputs.call_args_list == [mk.call(1)]
+                    assert mkOutputs.call_args_list == [mk.call(1, n_inputs=n_inputs)]
                     mkInputs.reset_mock()
                     mkOptional.reset_mock()
                     mkOutputs.reset_mock()
 
                     # No Defaults
                     meta_data = evaluation_io.MetaData.create_defaults(n_inputs,
-                                                                          n_outputs,
-                                                                          n_models,
-                                                                          standard_broadcasting,
-                                                                          pass_optional,
-                                                                          model_set_axis,
-                                                                          optional)
+                                                                       n_outputs,
+                                                                       n_models,
+                                                                       standard_broadcasting,
+                                                                       pass_optional,
+                                                                       model_set_axis,
+                                                                       optional)
                     assert meta_data._inputs == mkInputs.return_value
                     assert meta_data._optional == optional
                     assert optional.pass_optional == pass_optional
@@ -3210,9 +3356,9 @@ class TestMetaData:
                     assert meta_data._outputs == mkOutputs.return_value
                     assert meta_data._n_models == n_models
                     assert meta_data._standard_broadcasting == standard_broadcasting
-                    assert mkInputs.call_args_list == [mk.call(n_inputs)]
+                    assert mkInputs.call_args_list == [mk.call(n_inputs, n_outputs=n_outputs)]
                     assert mkOptional.call_args_list == []
-                    assert mkOutputs.call_args_list == [mk.call(n_outputs)]
+                    assert mkOutputs.call_args_list == [mk.call(n_outputs, n_inputs=n_inputs)]
 
     def test_n_inputs(self):
         inputs = evaluation_io.InputMetaData.create_defaults(3)
@@ -3339,7 +3485,7 @@ class TestMetaData:
                                               outputs)
 
         # Test get
-        assert meta_data.outputs == ('y0', 'y1', 'y2')
+        assert meta_data.outputs == ('x0', 'x1', 'x2')
 
         # Test set
         value = mk.MagicMock()
@@ -3513,15 +3659,16 @@ class TestMetaData:
                                            output_data, n_models=n_models)
         inputs = mk.MagicMock()
         results = mk.MagicMock()
+        return_units = mk.MagicMock()
 
         outputs = evaluation_io.Outputs(mk.MagicMock())
         with mk.patch.object(evaluation_io.OutputMetaData, 'get_outputs',
                              autospec=True, return_value=outputs) as mkGet:
             with mk.patch.object(evaluation_io.Outputs, 'prepare_outputs',
                                  autospec=True) as mkPrepare:
-                assert meta_data.prepare_outputs(inputs, results) ==\
+                assert meta_data.prepare_outputs(inputs, return_units, results) ==\
                     mkPrepare.return_value
                 assert mkPrepare.call_args_list == \
-                    [mk.call(outputs, n_models, inputs)]
+                    [mk.call(outputs, n_models, inputs, return_units)]
                 assert mkGet.call_args_list == \
                     [mk.call(output_data, inputs, results)]

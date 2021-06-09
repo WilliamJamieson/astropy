@@ -912,6 +912,12 @@ class Model(metaclass=_ModelMeta):
             else:
                 super().__setattr__(attr, value)
 
+    def prepare_inputs_from_metadata(self, *args, **kwargs) -> EvaluationInputs:
+        params = [getattr(self, name) for name in self.param_names]
+        return  self._input_meta_data.prepare_inputs(params,
+                                                     self,
+                                                     *args, **kwargs)
+
     def evaluate_model(self, inputs: EvaluationInputs):
         if isinstance(self, CompoundModel):
             # CompoundModels do not normally hold parameters at that level
@@ -919,13 +925,9 @@ class Model(metaclass=_ModelMeta):
         else:
             parameters = self._param_sets(raw=True, units=True)
 
-        result = self.evaluate(*chain(inputs.values, parameters))
+        results = self.evaluate(*chain(inputs.values, parameters))
 
-    def prepare_inputs_from_metadata(self, *args, **kwargs) -> EvaluationInputs:
-        params = [getattr(self, name) for name in self.param_names]
-        return  self._input_meta_data.prepare_inputs(params,
-                                                     self,
-                                                     *args, **kwargs)
+        return self._input_meta_data.prepare_outputs(inputs, self.return_units, results)
 
     def __call__(self, *args, **kwargs):
         """
@@ -934,10 +936,15 @@ class Model(metaclass=_ModelMeta):
         """
         inputs = self.prepare_inputs_from_metadata(*args, **kwargs)
         result = self.evaluate_model(inputs)
+        new_output = result.scalars
 
         new_args, kwargs = self._get_renamed_inputs_as_positional(*args, **kwargs)
 
-        return generic_call(self, *new_args, **kwargs)
+        output = generic_call(self, *new_args, **kwargs)
+        print('New:', new_output, type(new_output), np.isscalar(new_output))
+        print('Old:', output, type(output), np.isscalar(output))
+
+        return new_output
 
     def _get_renamed_inputs_as_positional(self, *args, **kwargs):
         def _keyword2positional(kwargs):
@@ -4178,6 +4185,7 @@ def generic_call(self, *inputs, **kwargs):
             outputs = [np.zeros(input_shape) + fill_value for i in range(self.n_outputs)]
         if valid_result_unit is not None:
             outputs = Quantity(outputs, valid_result_unit, copy=False)
+
     else:
         outputs = self.evaluate(*chain(inputs, parameters))
         if self.n_outputs == 1:
