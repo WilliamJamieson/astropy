@@ -936,13 +936,21 @@ class Model(metaclass=_ModelMeta):
         """
         inputs = self.prepare_inputs_from_metadata(*args, **kwargs)
         result = self.evaluate_model(inputs)
-        new_output = result.scalars
+        new_output = result.results(inputs.inputs)
 
         new_args, kwargs = self._get_renamed_inputs_as_positional(*args, **kwargs)
 
         output = generic_call(self, *new_args, **kwargs)
-        print('New:', new_output, type(new_output), np.isscalar(new_output))
+        print('New:', new_output, type(new_output), np.isscalar(new_output), result.scalars)
         print('Old:', output, type(output), np.isscalar(output))
+
+        print('New', new_output.shape, np.transpose(new_output).shape)
+        print('Old', output.shape)
+
+        print('New', np.rollaxis(new_output, 0, 3).shape)
+        print('Old', output.shape)
+        print(np.rollaxis(new_output, 0, 3) == output)
+        # print(np.rollaxis(new_output, 2) == output)
 
         return new_output
 

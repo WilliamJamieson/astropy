@@ -45,6 +45,7 @@ class IoEntry(object):
 
     @value.setter
     def value(self, value):
+        print(f"Input set {self._name}:", value, isinstance(value, np.ndarray))
         self._value = np.asanyarray(value, dtype=float)
 
     @property
@@ -104,6 +105,17 @@ class InputEntry(IoEntry):
     @property
     def is_quantity(self) -> bool:
         return isinstance(self._value, Quantity)
+
+    @property
+    def is_single_scalar(self) -> bool:
+        print(f"Input {self._name}:", self._value)
+        return isinstance(self._value, np.ndarray) and self._value.shape == (1,)
+        # try:
+        #     length = len(self._value)
+        # except TypeError:
+        #     return False
+        # else:
+        #     return not np.isscalar(self._value) and length == 1
 
     def _array_shape(self, array_shape: bool) -> tuple:
         """
@@ -611,6 +623,10 @@ class Inputs(object):
     @property
     def are_quantity(self) -> bool:
         return any([entry.is_quantity for entry in self._inputs.values()])
+
+    @property
+    def are_single_scalar(self) -> bool:
+        return any([entry.is_single_scalar for entry in self._inputs.values()])
 
     @property
     def names(self) -> Tuple[str]:
@@ -1259,11 +1275,20 @@ class Outputs(object):
 
     @property
     def scalars(self):
-        scalars = tuple([entry.scalar for entry in self._outputs.values()])
+        return tuple([entry.scalar for entry in self._outputs.values()])
+
+    def results(self, inputs: Inputs):
         if self.n_outputs == 1:
-            return scalars[0]
+            scalars = self.scalars[0]
+            print(inputs.are_single_scalar)
+            if inputs.are_single_scalar and not isinstance(scalars, Quantity):
+                scalars = np.array(self.scalars)
+                if len(scalars.shape) > 1 and scalars.shape[0] == 1:
+                    scalars = scalars[0]
         else:
-            return scalars
+            scalars = self.scalars
+
+        return scalars
 
     def prepare_outputs_single_model(self, format_info: list) -> "Outputs":
         outputs = {}
