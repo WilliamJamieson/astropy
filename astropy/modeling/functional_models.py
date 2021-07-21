@@ -548,7 +548,7 @@ class Scale(Fittable1DModel):
         except NotImplementedError:
             pass
         else:
-            inv.bounding_box = tuple(self.evaluate(x, self.factor) for x in self.bounding_box)
+            inv.bounding_box = tuple(self.evaluate(x, self.factor) for x in self.bounding_box.bounding_box())
 
         return inv
 
@@ -598,7 +598,7 @@ class Multiply(Fittable1DModel):
         except NotImplementedError:
             pass
         else:
-            inv.bounding_box = tuple(self.evaluate(x, self.factor) for x in self.bounding_box)
+            inv.bounding_box = tuple(self.evaluate(x, self.factor) for x in self.bounding_box.bounding_box())
 
         return inv
 
@@ -663,7 +663,7 @@ class RedshiftScaleFactor(Fittable1DModel):
         except NotImplementedError:
             pass
         else:
-            inv.bounding_box = tuple(self.evaluate(x, self.z) for x in self.bounding_box)
+            inv.bounding_box = tuple(self.evaluate(x, self.z) for x in self.bounding_box.bounding_box())
 
         return inv
 
