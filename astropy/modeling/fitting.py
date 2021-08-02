@@ -1244,6 +1244,172 @@ class LevMarLSQFitter(metaclass=_FitterMeta):
                 return [np.ravel(_) for _ in weights * np.array(model.fit_deriv(x, y, *params))]
 
 
+class TRFLSQFitter(metaclass=_FitterMeta):
+    """
+    Trust Region Reflective (dogbox or Levenberg-Marqueardt) algorithm
+    and least squares statistic.
+
+    Attributes
+    ----------
+    method : str
+        The method used to perform the fit (see notes)
+    fit_info :
+        A `scipy.optimize.OptimizeResult` class which contains all of
+        the most recent fit information
+
+    Notes
+    -----
+    The ``method`` determines which fitter algorithm to use:
+        ‘trf’ : Trust Region Reflective algorithm, particularly suitable
+            for large sparse problems with bounds. Generally robust method.
+        ‘dogbox’ : dogleg algorithm with rectangular trust regions, typical
+            use case is small problems with bounds. Not recommended for
+            problems with rank-deficient Jacobian.
+        ‘lm’ : Levenberg-Marquardt algorithm as implemented in MINPACK.
+            Doesn’t handle bounds and sparse Jacobians. Usually the most
+            efficient method for small unconstrained problems.
+    """
+
+    supported_constraints = ['fixed', 'tied', 'bounds']
+    """
+    The constraint types supported by this fitter type.
+    """
+
+    def __init__(self, calc_uncertainties=False, method='trf'):
+        self.fit_info = None
+        self._calc_uncertainties = calc_uncertainties
+        self._method = method
+        super().__init__()
+
+    def objective_function(self, fps, *args):
+        """
+        Function to minimize.
+
+        Parameters
+        ----------
+        fps : list
+            parameters returned by the fitter
+        args : list
+            [model, [weights], [input coordinates]]
+
+        """
+
+        model = args[0]
+        weights = args[1]
+        _fitter_to_model_params(model, fps, False)
+        meas = args[-1]
+        if weights is None:
+            return np.ravel(model(*args[2: -1]) - meas)
+        else:
+            return np.ravel(weights * (model(*args[2: -1]) - meas))
+
+    @staticmethod
+    def _add_fitting_uncertainties(model, cov_matrix):
+        """
+        Set ``cov_matrix`` and ``stds`` attributes on model with parameter
+        covariance matrix returned by ``optimize.leastsq``.
+        """
+
+        free_param_names = [x for x in model.fixed if (model.fixed[x] is False)
+                            and (model.tied[x] is False)]
+
+        model.cov_matrix = Covariance(cov_matrix, free_param_names)
+        model.stds = StandardDeviations(cov_matrix, free_param_names)
+
+    @fitter_unit_support
+    def __call__(self, model, x, y, z=None, weights=None,
+                 maxiter=DEFAULT_MAXITER, acc=DEFAULT_ACC,
+                 epsilon=DEFAULT_EPS, estimate_jacobian=False):
+        """
+        Fit data to this model.
+
+        Parameters
+        ----------
+        model : `~astropy.modeling.FittableModel`
+            model to fit to x, y, z
+        x : array
+           input coordinates
+        y : array
+           input coordinates
+        z : array, optional
+           input coordinates
+        weights : array, optional
+            Weights for fitting.
+            For data with Gaussian uncertainties, the weights should be
+            1/sigma.
+        maxiter : int
+            maximum number of iterations
+        acc : float
+            Relative error desired in the approximate solution
+        epsilon : float
+            A suitable step length for the forward-difference
+            approximation of the Jacobian (if model.fjac=None). If
+            epsfcn is less than the machine precision, it is
+            assumed that the relative errors in the functions are
+            of the order of the machine precision.
+        estimate_jacobian : bool
+            If False (default) and if the model has a fit_deriv method,
+            it will be used. Otherwise the Jacobian will be estimated.
+            If True, the Jacobian will be estimated in any case.
+        equivalencies : list or None, optional, keyword-only
+            List of *additional* equivalencies that are should be applied in
+            case x, y and/or z have units. Default is None.
+
+        Returns
+        -------
+        model_copy : `~astropy.modeling.FittableModel`
+            a copy of the input model with parameters set by the fitter
+
+        """
+
+        from scipy import optimize
+
+        model_copy = _validate_model(model, self.supported_constraints)
+        model_copy.sync_constraints = False
+        farg = (model_copy, weights, ) + _convert_input(x, y, z)
+
+        if model_copy.fit_deriv is None or estimate_jacobian:
+            dfunc = None
+        else:
+            dfunc = self._wrap_deriv
+        init_values, _ = _model_to_fit_params(model_copy)
+
+        # TODO add stuff to figure out bounds and method
+
+        self.fit_info = optimize.least_squares(
+            self.objective_function, init_values, args=farg, jac=dfunc,
+            max_nfev=maxiter, diff_step=epsilon, xtol=acc,
+            method=self._method
+        )
+
+        # fitparams, cov_x, dinfo, mess, ierr = optimize.leastsq(
+        #     self.objective_function, init_values, args=farg, Dfun=dfunc,
+        #     col_deriv=model_copy.col_fit_deriv, maxfev=maxiter, epsfcn=epsilon,
+        #     xtol=acc, full_output=True)
+
+        _fitter_to_model_params(model_copy, self.fit_info.x, False)
+        if not self.fit_info.success:
+            warnings.warn("The fit may be unsuccessful; check: \n"
+                          f"    {self.fit_info.message}",
+                          AstropyUserWarning)
+
+        # now try to compute the true covariance matrix
+        # if (len(y) > len(init_values)) and self.fit_info.jac is not None:
+        #     sum_sqrs = np.sum(self.objective_function(self.fit_info.x, *farg)**2)
+        #     dof = len(y) - len(init_values)
+        #     self.fit_info['param_cov'] = self. * sum_sqrs / dof
+        # else:
+        #     self.fit_info['param_cov'] = None
+
+        # if self._calc_uncertainties is True:
+        #     if self.fit_info['param_cov'] is not None:
+        #         self._add_fitting_uncertainties(model_copy,
+        #                                        self.fit_info['param_cov'])
+
+        model_copy.sync_constraints = True
+        return model_copy
+
+
 class SLSQPLSQFitter(Fitter):
     """
     Sequential Least Squares Programming (SLSQP) optimization algorithm and
@@ -1595,7 +1761,7 @@ def _convert_input(x, y, z=None, n_models=1, model_set_axis=0):
 # its own versions of these)
 # TODO: Most of this code should be entirely rewritten; it should not be as
 # inefficient as it is.
-def _fitter_to_model_params(model, fps):
+def _fitter_to_model_params(model, fps, check_bounds=True):
     """
     Constructs the full list of model parameters from the fitted and
     constrained parameters.
@@ -1629,7 +1795,7 @@ def _fitter_to_model_params(model, fps):
         values = fps[offset:offset + size]
 
         # Check bounds constraints
-        if model.bounds[name] != (None, None):
+        if model.bounds[name] != (None, None) and check_bounds:
             _min, _max = model.bounds[name]
             if _min is not None:
                 values = np.fmax(values, _min)
