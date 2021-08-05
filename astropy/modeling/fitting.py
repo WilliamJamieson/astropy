@@ -1363,15 +1363,23 @@ class TRFLSQFitter(metaclass=_FitterMeta):
         """
 
         from scipy import optimize
+        from scipy. linalg import svd
 
         model_copy = _validate_model(model, self.supported_constraints)
         model_copy.sync_constraints = False
         farg = (model_copy, weights, ) + _convert_input(x, y, z)
 
         if model_copy.fit_deriv is None or estimate_jacobian:
-            dfunc = None
+            dfunc = '2-point'
         else:
-            dfunc = self._wrap_deriv
+            def _dfunc(params, model, weights, x, y, z=None):
+                if model_copy.col_fit_deriv:
+                    return np.transpose(self._wrap_deriv(params, model, weights, x, y, z))
+                else:
+                    return self._wrap_deriv(params, model, weights, x, y, z)
+
+            dfunc = _dfunc
+
         init_values, _ = _model_to_fit_params(model_copy)
 
         # TODO add stuff to figure out bounds and method
@@ -1382,10 +1390,14 @@ class TRFLSQFitter(metaclass=_FitterMeta):
             method=self._method
         )
 
-        # fitparams, cov_x, dinfo, mess, ierr = optimize.leastsq(
-        #     self.objective_function, init_values, args=farg, Dfun=dfunc,
-        #     col_deriv=model_copy.col_fit_deriv, maxfev=maxiter, epsfcn=epsilon,
-        #     xtol=acc, full_output=True)
+        # Adapted from ~scipy.optimize.minpack, see:
+        # https://github.com/scipy/scipy/blob/47bb6febaa10658c72962b9615d5d5aa2513fa3a/scipy/optimize/minpack.py#L795-L816
+        # Do Moore-Penrose inverse discarding zero singular values.
+        _, s, VT = svd(self.fit_info.jac, full_matrices=False)
+        threshold = np.finfo(float).eps * max(self.fit_info.jac.shape) * s[0]
+        s = s[s > threshold]
+        VT = VT[:s.size]
+        cov_x = np.dot(VT.T / s**2, VT)
 
         _fitter_to_model_params(model_copy, self.fit_info.x, False)
         if not self.fit_info.success:
@@ -1394,20 +1406,80 @@ class TRFLSQFitter(metaclass=_FitterMeta):
                           AstropyUserWarning)
 
         # now try to compute the true covariance matrix
-        # if (len(y) > len(init_values)) and self.fit_info.jac is not None:
-        #     sum_sqrs = np.sum(self.objective_function(self.fit_info.x, *farg)**2)
-        #     dof = len(y) - len(init_values)
-        #     self.fit_info['param_cov'] = self. * sum_sqrs / dof
-        # else:
-        #     self.fit_info['param_cov'] = None
+        if (len(y) > len(init_values)) and cov_x is not None:
+            sum_sqrs = np.sum(self.objective_function(self.fit_info.x, *farg)**2)
+            dof = len(y) - len(init_values)
+            self.fit_info['param_cov'] = cov_x * sum_sqrs / dof
+        else:
+            self.fit_info['param_cov'] = None
 
-        # if self._calc_uncertainties is True:
-        #     if self.fit_info['param_cov'] is not None:
-        #         self._add_fitting_uncertainties(model_copy,
-        #                                        self.fit_info['param_cov'])
+        if self._calc_uncertainties is True:
+            if self.fit_info['param_cov'] is not None:
+                self._add_fitting_uncertainties(model_copy,
+                                                self.fit_info['param_cov'])
 
         model_copy.sync_constraints = True
         return model_copy
+
+    @staticmethod
+    def _wrap_deriv(params, model, weights, x, y, z=None):
+        """
+        Wraps the method calculating the Jacobian of the function to account
+        for model constraints.
+        `scipy.optimize.leastsq` expects the function derivative to have the
+        above signature (parlist, (argtuple)). In order to accommodate model
+        constraints, instead of using p directly, we set the parameter list in
+        this function.
+        """
+
+        if weights is None:
+            weights = 1.0
+
+        if any(model.fixed.values()) or any(model.tied.values()):
+            # update the parameters with the current values from the fitter
+            _fitter_to_model_params(model, params)
+            if z is None:
+                full = np.array(model.fit_deriv(x, *model.parameters))
+                if not model.col_fit_deriv:
+                    full_deriv = np.ravel(weights) * full.T
+                else:
+                    full_deriv = np.ravel(weights) * full
+            else:
+                full = np.array([np.ravel(_) for _ in model.fit_deriv(x, y, *model.parameters)])
+                if not model.col_fit_deriv:
+                    full_deriv = np.ravel(weights) * full.T
+                else:
+                    full_deriv = np.ravel(weights) * full
+
+            pars = [getattr(model, name) for name in model.param_names]
+            fixed = [par.fixed for par in pars]
+            tied = [par.tied for par in pars]
+            tied = list(np.where([par.tied is not False for par in pars],
+                                 True, tied))
+            fix_and_tie = np.logical_or(fixed, tied)
+            ind = np.logical_not(fix_and_tie)
+
+            if not model.col_fit_deriv:
+                residues = np.asarray(full_deriv[np.nonzero(ind)]).T
+            else:
+                residues = full_deriv[np.nonzero(ind)]
+
+            return [np.ravel(_) for _ in residues]
+        else:
+            if z is None:
+                try:
+                    return np.array([np.ravel(_) for _ in np.array(weights) *
+                                     np.array(model.fit_deriv(x, *params))])
+                except ValueError:
+                    return np.array([np.ravel(_) for _ in np.array(weights) *
+                                     np.moveaxis(
+                                         np.array(model.fit_deriv(x, *params)),
+                                         -1, 0)]).transpose()
+            else:
+                if not model.col_fit_deriv:
+                    return [np.ravel(_) for _ in
+                            (np.ravel(weights) * np.array(model.fit_deriv(x, y, *params)).T).T]
+                return [np.ravel(_) for _ in weights * np.array(model.fit_deriv(x, y, *params))]
 
 
 class SLSQPLSQFitter(Fitter):
