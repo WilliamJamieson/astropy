@@ -932,7 +932,7 @@ class TestWeightedFittingWithOutlierRemoval:
 
 
 @pytest.mark.skipif('not HAS_SCIPY')
-@pytest.mark.parametrize('fitter', [LevMarLSQFitter(), TRFLSQFitter()])
+@pytest.mark.parametrize('fitter', [LevMarLSQFitter(), TRFLSQFitter(check_bounds=True)])
 def test_fitters_with_weights(fitter):
     """Issue #5737 """
     Xin, Yin = np.mgrid[0:21, 0:21]

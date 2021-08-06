@@ -1275,10 +1275,11 @@ class TRFLSQFitter(metaclass=_FitterMeta):
     The constraint types supported by this fitter type.
     """
 
-    def __init__(self, calc_uncertainties=False, method='trf'):
+    def __init__(self, calc_uncertainties=False, method='trf', check_bounds=False):
         self.fit_info = None
         self._calc_uncertainties = calc_uncertainties
         self._method = method
+        self._check_bounds = check_bounds
         super().__init__()
 
     def objective_function(self, fps, *args):
@@ -1296,7 +1297,7 @@ class TRFLSQFitter(metaclass=_FitterMeta):
 
         model = args[0]
         weights = args[1]
-        _fitter_to_model_params(model, fps, False)
+        _fitter_to_model_params(model, fps, self._check_bounds)
         meas = args[-1]
         if weights is None:
             return np.ravel(model(*args[2: -1]) - meas)
@@ -1382,7 +1383,8 @@ class TRFLSQFitter(metaclass=_FitterMeta):
 
         init_values, _, bounds = _model_to_fit_params(model_copy)
 
-        # TODO add stuff to figure out bounds and method
+        if self._check_bounds:
+            bounds = (-np.inf, np.inf)
 
         self.fit_info = optimize.least_squares(
             self.objective_function, init_values, args=farg, jac=dfunc,
