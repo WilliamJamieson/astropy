@@ -2,7 +2,7 @@
 # pylint: disable=invalid-name
 import pytest
 
-from astropy.modeling.utils import _SpecialOperatorsDict
+from astropy.modeling.utils import _SpecialOperatorsDict, _BoundingBox
 
 
 def test__SpecialOperatorsDict__set_value():
