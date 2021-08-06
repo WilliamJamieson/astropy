@@ -344,9 +344,9 @@ class Spline1D(Fittable1DModel, _Spline):
         else:
             return x, y
 
-    def fit_spline(self, x, y, w=None, k=3, s=None, t=None):
+    def interpolate_data(self, x, y, w=None, k=3, s=None, t=None):
         """
-        Fit spline using `scipy.interpolate.splrep`
+        Find an interpolating spline using `scipy.interpolate.splrep`
 
         Parameters
         ----------
@@ -393,12 +393,58 @@ class Spline1D(Fittable1DModel, _Spline):
 
         x, y = self._sort_xy(x, y)
 
-        from scipy.interpolate import (splrep, BSpline)
+        from scipy.interpolate import splrep
 
         self.tck, fp, ier, msg = splrep(x, y, w=w, xb=xb, xe=xe, k=k, s=s, t=t,
                                         full_output=1)
 
         return fp, ier, msg
+
+    def fit_data(self, x, y, t, k=3, w=None, axis=0,
+                 check_finite=True, ghost_knots=True):
+        """
+        Fit a spline with knots defined by `t` to the x/y data
+
+        Parameters
+        ----------
+        x, y : array-like
+            The data points defining a curve y = f(x)
+        t : array-like
+            Knots.
+        k : int, optional
+            The degree of the spline fit. It is recommended to use cubic
+            splines. Even values of k should be avoided especially with
+            small s values.
+                1 <= k <= 5
+        w : array-like, optional
+            Strictly positive rank-1 array of weights the same length
+            as x and y. The weights are used in computing the weighted
+            least-squares spline fit. If the errors in the y values have
+            standard-deviation given by the vector d, then w should be
+            1/d. Default is ones(len(x)).
+        check_finite: bool, optional
+            Whether to check that the input arrays contain only finite
+            numbers. Disabling may give a performance gain, but may result
+            in problems (crashes, non-termination or non-sensical results)
+            if the inputs do contain infinities or NaNs. Default is False.
+        ghost_knots : bool, optional
+            Determines if there are ghost_knots or not. If False the knots
+            must be in ascending order and:
+            x[0] < t[0] < ... < t[-1] < x[-1]
+            If True the knots must satisfy Schoenberg-Whitney conditions, i.e.
+            the first k + 1 knots must be x[0] and the last k - 1 must be x[-1]
+            while the remaining interior knots must be in strictly ascending order.
+        """
+
+        if not ghost_knots:
+            t = np.concatenate(([x[0]]*(k+1), t, [x[-1]]*(k+1)))
+
+        x, y = self._sort_xy(x, y)
+
+        from scipy.interpolate import make_lsq_spline
+
+        bspline = make_lsq_spline(x, y, t, k, w, axis, check_finite)
+        self.tck = bspline.tck
 
 
 class Spline2D(Fittable2DModel, _Spline):
