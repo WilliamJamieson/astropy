@@ -524,14 +524,14 @@ class TestSpline1D:
 
         return BSpline(*tck), fp, ier, msg
 
-    def check_fit_spline(self, spl, x, y, fp, ier, msg, w=None, k=3, s=None, t=None):
+    def check_interpolate_data(self, spl, x, y, fp, ier, msg, w=None, k=3, s=None, t=None):
         if (s is not None) and (t is not None):
             with pytest.warns(AstropyUserWarning):
                 test_fp, test_ier, test_msg = \
-                    spl.fit_spline(x, y, w=w, k=k, s=s, t=t)
+                    spl.interpolate_data(x, y, w=w, k=k, s=s, t=t)
         else:
             test_fp, test_ier, test_msg = \
-                spl.fit_spline(x, y, w=w, k=k, s=s, t=t)
+                spl.interpolate_data(x, y, w=w, k=k, s=s, t=t)
 
         assert fp == test_fp
         assert ier == test_ier
@@ -573,23 +573,36 @@ class TestSpline1D:
 
         # Test warning
         with pytest.warns(AstropyUserWarning):
-            spl.fit_spline(self.x, self.y)
+            spl.interpolate_data(self.x, self.y)
 
     def run_fit_check(self, spl, w=None, k=3, s=None, t=None, bbox=[None]*2):
         truth, fp, ier, msg = self.generate_spline(w=w, k=k, s=s, t=t, bbox=bbox)
 
         spl.reset()
-        self.check_fit_spline(spl, self.x, self.y, fp, ier, msg,
+        self.check_interpolate_data(spl, self.x, self.y, fp, ier, msg,
                               w=w, k=k, s=s, t=t)
         self.check_fit(spl, truth, k=k)
 
         spl.reset()
-        self.check_fit_spline(spl, self.x_s, self.y_s, fp, ier, msg,
+        self.check_interpolate_data(spl, self.x_s, self.y_s, fp, ier, msg,
                               w=w, k=k, s=s, t=t)
         self.check_fit(spl, truth, k=k)
 
+    def test_fit_data(self):
+        spl = Spline1D()
+
+        np.random.seed(42)
+        x = np.linspace(-3, 3, 50)
+        y = np.exp(-x**2) + 0.1 * np.random.standard_normal(50)
+
+        t = [-1, 0, 1]
+        k = 3
+        t = np.r_[(x[0],)*(k+1), t, (x[-1],)*(k+1)]
+
+        spl.fit_data(x, y, t, k)
+
     @pytest.mark.parametrize(fitting_variables_1D, fitting_tests_1D)
-    def test_fit_spline(self, w, k, s, t):
+    def test_interpolate_data(self, w, k, s, t):
         spl = Spline1D()
 
         # Normal

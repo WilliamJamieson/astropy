@@ -1654,7 +1654,7 @@ class SplineFitter(metaclass=_FitterMeta):
             if k is None:
                 k = 3
 
-            fp, ier, msg = model_copy.fit_spline(x, y, w=w, k=k, s=s, t=t)
+            fp, ier, msg = model_copy.interpolate_data(x, y, w=w, k=k, s=s, t=t)
             self._set_fit_info(fp, ier, msg)
 
             return model_copy
