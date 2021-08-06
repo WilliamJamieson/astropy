@@ -944,9 +944,7 @@ def test_fitters_with_weights(fitter):
     g2 = models.Gaussian2D(10, 10, 9, 2, 3)
     z = g2(Xin, Yin)
     gmod = fitter(models.Gaussian2D(15, 7, 8, 1.3, 1.2), Xin, Yin, z + zsig)
-    # TODO: fix after implementing bounds
-    assert_allclose(np.abs(gmod.parameters), g2.parameters, atol=10 ** (-2))
-    # assert_allclose(gmod.parameters, g2.parameters, atol=10 ** (-2))
+    assert_allclose(gmod.parameters, g2.parameters, atol=10 ** (-2))
 
     # Linear model
     p2 = models.Polynomial2D(3)

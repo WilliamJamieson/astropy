@@ -534,7 +534,7 @@ class LinearLSQFitter(metaclass=_FitterMeta):
 
         model_copy = model.copy()
         model_copy.sync_constraints = False
-        _, fitparam_indices = _model_to_fit_params(model_copy)
+        _, fitparam_indices, _ = _model_to_fit_params(model_copy)
 
         if model_copy.n_inputs == 2 and z is None:
             raise ValueError("Expected x, y and z for a 2 dimensional model.")
@@ -1152,7 +1152,7 @@ class LevMarLSQFitter(metaclass=_FitterMeta):
             dfunc = None
         else:
             dfunc = self._wrap_deriv
-        init_values, _ = _model_to_fit_params(model_copy)
+        init_values, _, _ = _model_to_fit_params(model_copy)
         fitparams, cov_x, dinfo, mess, ierr = optimize.leastsq(
             self.objective_function, init_values, args=farg, Dfun=dfunc,
             col_deriv=model_copy.col_fit_deriv, maxfev=maxiter, epsfcn=epsilon,
@@ -1380,14 +1380,14 @@ class TRFLSQFitter(metaclass=_FitterMeta):
 
             dfunc = _dfunc
 
-        init_values, _ = _model_to_fit_params(model_copy)
+        init_values, _, bounds = _model_to_fit_params(model_copy)
 
         # TODO add stuff to figure out bounds and method
 
         self.fit_info = optimize.least_squares(
             self.objective_function, init_values, args=farg, jac=dfunc,
-            max_nfev=maxiter, diff_step=epsilon, xtol=acc,
-            method=self._method
+            max_nfev=maxiter, diff_step=np.sqrt(epsilon), xtol=acc,
+            method=self._method, bounds=bounds
         )
 
         # Adapted from ~scipy.optimize.minpack, see:
@@ -1550,7 +1550,7 @@ class SLSQPLSQFitter(Fitter):
         model_copy.sync_constraints = False
         farg = _convert_input(x, y, z)
         farg = (model_copy, weights, ) + farg
-        init_values, _ = _model_to_fit_params(model_copy)
+        init_values, _, _ = _model_to_fit_params(model_copy)
         fitparams, self.fit_info = self._opt_method(
             self.objective_function, init_values, farg, **kwargs)
         _fitter_to_model_params(model_copy, fitparams)
@@ -1618,7 +1618,7 @@ class SimplexLSQFitter(Fitter):
         farg = _convert_input(x, y, z)
         farg = (model_copy, weights, ) + farg
 
-        init_values, _ = _model_to_fit_params(model_copy)
+        init_values, _, _ = _model_to_fit_params(model_copy)
 
         fitparams, self.fit_info = self._opt_method(
             self.objective_function, init_values, farg, **kwargs)
@@ -1839,7 +1839,7 @@ def _fitter_to_model_params(model, fps, check_bounds=True):
     constrained parameters.
     """
 
-    _, fit_param_indices = _model_to_fit_params(model)
+    _, fit_param_indices, _ = _model_to_fit_params(model)
 
     has_tied = any(model.tied.values())
     has_fixed = any(model.fixed.values())
@@ -1907,16 +1907,33 @@ def _model_to_fit_params(model):
     """
 
     fitparam_indices = list(range(len(model.param_names)))
+    model_params = model.parameters
+    model_bounds = list(model.bounds.values())
     if any(model.fixed.values()) or any(model.tied.values()):
-        params = list(model.parameters)
+        params = list(model_params)
         param_metrics = model._param_metrics
         for idx, name in list(enumerate(model.param_names))[::-1]:
             if model.fixed[name] or model.tied[name]:
                 slice_ = param_metrics[name]['slice']
                 del params[slice_]
+                del model_bounds[slice_]
                 del fitparam_indices[idx]
-        return (np.array(params), fitparam_indices)
-    return (model.parameters, fitparam_indices)
+        model_params = np.array(params)
+
+    for idx, bound in enumerate(model_bounds):
+        if bound[0] is None:
+            lower = -np.inf
+        else:
+            lower = bound[0]
+
+        if bound[1] is None:
+            upper = np.inf
+        else:
+            upper = bound[1]
+
+        model_bounds[idx] = (lower, upper)
+    model_bounds = tuple(zip(*model_bounds))
+    return model_params, fitparam_indices, model_bounds
 
 
 def _validate_constraints(supported_constraints, model):
