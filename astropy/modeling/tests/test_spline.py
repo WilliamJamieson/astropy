@@ -664,9 +664,8 @@ class TestSpline1D:
 
     @pytest.mark.parametrize(fitting_variables_1D, fitting_tests_1D)
     def test_fit_data(self, w, k):
-        truth = self.fit_spline(w=w, k=k)
-
         spl = Spline1D()
+        truth = self.fit_spline(w=w, k=k)
 
         # With ghost knots
         spl.fit_data(self.x, self.y, self.get_knots(k), k=k, w=w)
@@ -891,8 +890,8 @@ class TestSpline1D:
         assert (y_n == self.y).all()
 
 
-fitting_variables_2D = ('w', 'kx', 'ky', 's', 'tx', 'ty')
-fitting_tests_2D = [
+interpolating_variables_2D = ('w', 'kx', 'ky', 's', 'tx', 'ty')
+interpolating_tests_2D = [
     (None,   1, 3, None, None,   None),
     (None,   2, 3, None, None,   None),
     (None,   4, 3, None, None,   None),
@@ -920,6 +919,25 @@ fitting_tests_2D = [
     (None,   1, 1, None, None,   test_t),
 ]
 
+fitting_variables_2D = ('w', 'kx', 'ky')
+fitting_tests_2D = [
+    (None,   1, 3),
+    (None,   2, 3),
+    (None,   4, 3),
+    (None,   5, 3),
+    (None,   3, 1),
+    (None,   3, 2),
+    (None,   3, 4),
+    (None,   3, 5),
+    (None,   1, 1),
+    (None,   2, 2),
+    (None,   3, 3),
+    (None,   4, 4),
+    (None,   5, 5),
+    (test_w, 3, 3),
+    (test_w, 1, 1),
+]
+
 
 @pytest.mark.skipif('not HAS_SCIPY')
 class TestSpline2D:
@@ -936,8 +954,11 @@ class TestSpline2D:
         self.xs = np.linspace(-3, 3, self.npts_out)
         self.ys = np.linspace(-3, 3, self.npts_out)
 
-    def generate_spline(self, w=None, bbox=[None]*4, kx=None, ky=None,
-                        s=None, tx=None, ty=None):
+        self.tx = np.linspace(-3, 3, nknots)[1:-1]
+        self.ty = np.linspace(-3, 3, nknots)[1:-1]
+
+    def interpolate_spline(self, w=None, bbox=[None]*4, kx=None, ky=None,
+                           s=None, tx=None, ty=None):
         if kx is None:
             kx = 3
         if ky is None:
@@ -951,6 +972,18 @@ class TestSpline2D:
                                      full_output=1)
 
         return BivariateSpline._from_tck(tck), fp, ier, msg
+
+    def fit_spline(self, w=None, bbox=[None]*4, kx=None, ky=None):
+        if kx is None:
+            kx = 3
+        if ky is None:
+            ky = 3
+
+        from scipy.interpolate import LSQBivariateSpline
+
+        with pytest.warns(UserWarning):
+            return LSQBivariateSpline(self.x, self.y, self.z, self.tx, self.ty,
+                                      w=w, bbox=bbox, kx=kx, ky=ky)
 
     def check_interpolate_data(self, spl, fp, ier, msg, w=None, kx=3, ky=3,
                          s=None, tx=None, ty=None):
@@ -1027,41 +1060,41 @@ class TestSpline2D:
         with pytest.warns(AstropyUserWarning):
             spl.interpolate_data(self.x, self.y, self.z)
 
-    @pytest.mark.parametrize(fitting_variables_2D, fitting_tests_2D)
+    @pytest.mark.parametrize(interpolating_variables_2D, interpolating_tests_2D)
     def test_interpolate_data(self, w, kx, ky, s, tx, ty):
         spl = Spline2D()
 
-        truth, fp, ier, msg = self.generate_spline()
+        truth, fp, ier, msg = self.interpolate_spline()
         check = self.check_interpolate_data(spl, fp, ier, msg)
         if check:
             self.check_fit(spl, truth)
 
         spl.reset()
-        truth, fp, ier, msg = self.generate_spline(w=w, kx=kx, ky=ky,
-                                                   s=s, tx=tx, ty=ty)
+        truth, fp, ier, msg = self.interpolate_spline(w=w, kx=kx, ky=ky,
+                                                      s=s, tx=tx, ty=ty)
         check = self.check_interpolate_data(spl, fp, ier, msg, w=w, kx=kx, ky=ky,
-                                      s=s, tx=tx, ty=ty)
+                                            s=s, tx=tx, ty=ty)
         if check:
             self.check_fit(spl, truth, kx=kx, ky=ky)
 
         spl.reset()
         spl.bounding_box = ((-4, 4), (-4, 4))
-        truth, fp, ier, msg = self.generate_spline(w=w, kx=kx, ky=ky,
+        truth, fp, ier, msg = self.interpolate_spline(w=w, kx=kx, ky=ky,
                                                    s=s, tx=tx, ty=ty,
                                                    bbox=spl.bbox)
         check = self.check_interpolate_data(spl, fp, ier, msg, w=w, kx=kx, ky=ky,
-                                      s=s, tx=tx, ty=ty)
+                                            s=s, tx=tx, ty=ty)
         if check:
             self.check_fit(spl, truth, kx=kx, ky=ky)
 
-    @pytest.mark.parametrize(fitting_variables_2D, fitting_tests_2D)
+    @pytest.mark.parametrize(interpolating_variables_2D, interpolating_tests_2D)
     def test_SplineFitter_interpolate(self, w, kx, ky, s, tx, ty):
         fitter = SplineFitter()
         spl = Spline2D()
 
         # Main check
-        truth, fp, ier, msg = self.generate_spline(w=w, kx=kx, ky=ky,
-                                                   s=s, tx=tx, ty=ty)
+        truth, fp, ier, msg = self.interpolate_spline(w=w, kx=kx, ky=ky,
+                                                      s=s, tx=tx, ty=ty)
         check, fit = self.check_fitter(fitter, spl, fp, ier, msg,
                                        w=w, kx=kx, ky=ky,
                                        s=s, tx=tx, ty=ty, method='interpolate')
@@ -1070,7 +1103,7 @@ class TestSpline2D:
             self.check_fit(fit, truth, kx=kx, ky=ky)
 
         # Check defaults
-        truth, fp, ier, msg = self.generate_spline()
+        truth, fp, ier, msg = self.interpolate_spline()
         fit = fitter(spl, self.x, self.y, self.z, method='interpolate')
         assert fitter.fit_info['fp'] == fp
         assert fitter.fit_info['ier'] == ier
@@ -1099,6 +1132,24 @@ class TestSpline2D:
                            match=r"Only spline models are compatible with this fitter"):
             fitter(mk.MagicMock(), self.x, self.y, self.z,
                    w=w, k=(kx, ky), s=s, t=(tx, ty), method='interpolate')
+
+    @pytest.mark.parametrize(fitting_variables_2D, fitting_tests_2D)
+    def test_fit_data(self, w, kx, ky):
+        spl = Spline2D()
+        truth = self.fit_spline(w=w, kx=kx, ky=ky)
+        with pytest.warns(UserWarning):
+            spl.fit_data(self.x, self.y, self.z, self.tx, self.ty, w=w, kx=kx, ky=ky)
+        self.check_fit(spl, truth, kx=kx, ky=ky)
+
+    @pytest.mark.parametrize(fitting_variables_2D, fitting_tests_2D)
+    def test_SplineFitter_lsq(self, w, kx, ky):
+        fitter = SplineFitter()
+        spl = Spline2D()
+        truth = self.fit_spline(w=w, kx=kx, ky=ky)
+
+        with pytest.warns(UserWarning):
+            fit = fitter(spl, self.x, self.y, self.z, t=(self.tx, self.ty), w=w, k=(kx, ky))
+        self.check_fit(fit, truth, kx=kx, ky=ky)
 
     def test___init__(self):
         # check  defaults
@@ -1143,7 +1194,7 @@ class TestSpline2D:
 
         spl.reset()
         # Realistic set
-        bspline = self.generate_spline()[0]
+        bspline = self.interpolate_spline()[0]
         spl.tck = bspline
         assert len(spl.tck) == 5
         assert spl.tck[:2] == tuple(bspline.get_knots())
@@ -1162,7 +1213,7 @@ class TestSpline2D:
 
     def test_spline(self):
         spl = Spline2D()
-        bspline = self.generate_spline()[0]
+        bspline = self.interpolate_spline()[0]
         spl.spline = bspline
 
         assert spl.spline.get_knots() == tuple(bspline.get_knots())
@@ -1171,7 +1222,7 @@ class TestSpline2D:
 
     def test_evaluate(self):
         spl = Spline2D()
-        truth = self.generate_spline()[0]
+        truth = self.interpolate_spline()[0]
         spl.spline = truth
 
         assert (spl.evaluate(self.xs, self.ys) == truth(self.xs, self.ys)).all()

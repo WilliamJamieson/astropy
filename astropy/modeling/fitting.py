@@ -1658,7 +1658,7 @@ class SplineFitter(metaclass=_FitterMeta):
         """
 
         if method not in ['lsq', 'interpolate']:
-            raise ValueError(f"{method=} but it must be 'lsq' or 'interpolate'")
+            raise ValueError(f"Method: {method} but it must be 'lsq' or 'interpolate'")
 
         if method == 'lsq' and t is None:
             raise ValueError('Least squares fitting requires a knots')

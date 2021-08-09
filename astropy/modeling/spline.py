@@ -630,4 +630,4 @@ class Spline2D(Fittable2DModel, _Spline):
 
         spline = LSQBivariateSpline(x, y, z, tx, ty, w=w, bbox=self.bbox,
                                     kx=kx, ky=ky, eps=eps)
-        self.tck = spline.tck
+        self.tck = (spline.get_knots(), spline.get_coeffs(), tuple(spline.degrees))
