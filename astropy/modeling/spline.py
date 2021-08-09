@@ -443,7 +443,8 @@ class Spline1D(Fittable1DModel, _Spline):
 
         from scipy.interpolate import make_lsq_spline
 
-        bspline = make_lsq_spline(x, y, t, k, w, axis, check_finite)
+        bspline = make_lsq_spline(x, y, t, k=k, w=w, axis=axis,
+                                  check_finite=check_finite)
         self.tck = bspline.tck
 
 
@@ -558,9 +559,9 @@ class Spline2D(Fittable2DModel, _Spline):
 
         return super().__call__(*args, **kwargs)
 
-    def fit_spline(self, x, y, z, w=None, kx=3, ky=3, s=None, tx=None, ty=None):
+    def interpolate_data(self, x, y, z, w=None, kx=3, ky=3, s=None, tx=None, ty=None):
         """
-        Fit spline using `scipy.interpolate.bisplrep`
+        Find an interpolating spline using `scipy.interpolate.bisplrep`
 
         Parameters
         ----------
@@ -602,3 +603,31 @@ class Spline2D(Fittable2DModel, _Spline):
                                           s=s, tx=tx, ty=ty, full_output=1)
 
         return fp, ier, msg
+
+    def fit_data(self, x, y, z, tx, ty, w=None, kx=3, ky=3, eps=None):
+        """
+        Find an interpolating spline using `scipy.interpolate.bisplrep`
+
+        Parameters
+        ----------
+        x, y, z : ndarray
+            Rank-1 arrays of data points.
+        tx, ty : array-like
+            Strictly ordered 1-D sequences of knots coordinates.
+        w : ndarray, optional
+            Rank-1 array of weights. By default w=np.ones(len(x)).
+        kx, ky :int, optional
+            The degrees of the spline.
+                1 <= kx, ky <= 5
+            Third order, the default (kx=ky=3), is recommended.
+        eps : float, optional
+            A threshold for determining the effective rank of an
+            over-determined linear system of equations. eps should have
+            a value within the open interval (0, 1), the default is 1e-16.
+        """
+
+        from scipy.interpolate import LSQBivariateSpline
+
+        spline = LSQBivariateSpline(x, y, z, tx, ty, w=w, bbox=self.bbox,
+                                    kx=kx, ky=ky, eps=eps)
+        self.tck = spline.tck

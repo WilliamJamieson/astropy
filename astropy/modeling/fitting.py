@@ -1605,7 +1605,7 @@ class SplineFitter(metaclass=_FitterMeta):
         self.fit_info['ier'] = ier
         self.fit_info['msg'] = msg
 
-    def __call__(self, model, x, y, z=None, *, w=None, k=None, s=None, t=None):
+    def __call__(self, model, x, y, z=None, *, method='lsq', w=None, k=None, s=None, t=None):
         """
         Fit spline
 
@@ -1618,6 +1618,9 @@ class SplineFitter(metaclass=_FitterMeta):
                 If 1D spline, x must be increasing; must be strictly
                 increasing if s is 0.
                 If 1D spline z must be None, otherwise z must be present.
+        method : str, optional
+            The type of fit to perform. Is either `lsq` for least squares
+            (default) or `interpolate` if we need to interpolate the data.
         w : array_like, optional
             Weights for spline fitting. Must be positive. Must have same
             length as x. If None (default), weights are all equal.
@@ -1646,6 +1649,12 @@ class SplineFitter(metaclass=_FitterMeta):
             This will override any setting for s.
         """
 
+        if method not in ['lsq', 'interpolate']:
+            raise ValueError(f"{method=} but it must be 'lsq' or 'interpolate'")
+
+        if method == 'lsq' and t is None:
+            raise ValueError('Least squares fitting requires a knots')
+
         model_copy = model.copy()
         if isinstance(model_copy, Spline1D):
             if z is not None:
@@ -1654,8 +1663,11 @@ class SplineFitter(metaclass=_FitterMeta):
             if k is None:
                 k = 3
 
-            fp, ier, msg = model_copy.interpolate_data(x, y, w=w, k=k, s=s, t=t)
-            self._set_fit_info(fp, ier, msg)
+            if method == 'interpolate':
+                fp, ier, msg = model_copy.interpolate_data(x, y, w=w, k=k, s=s, t=t)
+                self._set_fit_info(fp, ier, msg)
+            else:
+                model_copy.fit_data(x, y, t, w=w, k=k)
 
             return model_copy
 
@@ -1673,9 +1685,12 @@ class SplineFitter(metaclass=_FitterMeta):
             elif not (isinstance(t, tuple) and (len(t) == 2)):
                 raise ValueError("If setting t, then both tx and ty must be passed")
 
-            fp, ier, msg = model_copy.fit_spline(x, y, z, w=w, kx=k[0], ky=k[1],
-                                                 s=s, tx=t[0], ty=t[1])
-            self._set_fit_info(fp, ier, msg)
+            if method == 'interpolate':
+                fp, ier, msg = model_copy.interpolate_data(x, y, z, w=w, kx=k[0], ky=k[1],
+                                                           s=s, tx=t[0], ty=t[1])
+                self._set_fit_info(fp, ier, msg)
+            else:
+                model_copy.fit_data(x, y, z, t[0], t[1], w=w, kx=k[0], ky=k[1])
 
             return model_copy
         else:

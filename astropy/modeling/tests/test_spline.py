@@ -537,16 +537,16 @@ class TestSpline1D:
         assert ier == test_ier
         assert msg == test_msg
 
-    def check_fitter(self, fitter, spl, fp, ier, msg, w=None, k=3, s=None, t=None):
+    def check_fitter(self, fitter, spl, fp, ier, msg, w=None, k=3, s=None, t=None, method='lsq'):
         assert fitter.fit_info['fp'] is None
         assert fitter.fit_info['ier'] is None
         assert fitter.fit_info['msg'] is None
 
         if (s is not None) and (t is not None):
             with pytest.warns(AstropyUserWarning):
-                fit = fitter(spl, self.x, self.y, w=w, k=k, s=s, t=t)
+                fit = fitter(spl, self.x, self.y, w=w, k=k, s=s, t=t, method=method)
         else:
-            fit = fitter(spl, self.x, self.y, w=w, k=k, s=s, t=t)
+            fit = fitter(spl, self.x, self.y, w=w, k=k, s=s, t=t, method=method)
 
         assert fitter.fit_info['fp'] == fp
         assert fitter.fit_info['ier'] == ier
@@ -614,34 +614,42 @@ class TestSpline1D:
         self.run_fit_check(spl, w=w, k=k, s=s, t=t, bbox=bbox)
 
     @pytest.mark.parametrize(fitting_variables_1D, fitting_tests_1D)
-    def test_SplineFitter(self, w, k, s, t):
+    def test_SplineFitter_interpolate(self, w, k, s, t):
         fitter = SplineFitter()
         spl = Spline1D()
 
         # Main check
         truth, fp, ier, msg = self.generate_spline(w=w, k=k, s=s, t=t)
         fit = self.check_fitter(fitter, spl, fp, ier, msg,
-                                w=w, k=k, s=s, t=t)
+                                w=w, k=k, s=s, t=t, method='interpolate')
         assert id(fit) != id(spl)
         self.check_fit(fit, truth, k=k)
 
         # Check defaults
         truth, fp, ier, msg = self.generate_spline()
-        fit = fitter(spl, self.x, self.y)
+        fit = fitter(spl, self.x, self.y, method='interpolate')
         assert fitter.fit_info['fp'] == fp
         assert fitter.fit_info['ier'] == ier
         assert fitter.fit_info['msg'] == msg
         assert id(fit) != id(spl)
         self.check_fit(fit, truth)
 
+        # Test bad method
+        with pytest.raises(ValueError):
+            fitter(spl, self.x, self.y, w=w, k=k, s=s, t=t, method=mk.MagicMock())
+
+        # Test bad lsq
+        with pytest.raises(ValueError):
+            fitter(spl, self.x, self.y, w=w, k=k, s=s, method='lsq')
+
         # Test bad input
         with pytest.raises(ValueError):
-            fitter(spl, self.x, self.y, mk.MagicMock(), w=w, k=k, s=s, t=t)
+            fitter(spl, self.x, self.y, mk.MagicMock(), w=w, k=k, s=s, t=t, method='interpolate')
 
         # Test bad model
         with pytest.raises(ModelDefinitionError,
                            match=r"Only spline models are compatible with this fitter"):
-            fitter(mk.MagicMock(), self.x, self.y, w=w, k=k, s=s, t=t)
+            fitter(mk.MagicMock(), self.x, self.y, w=w, k=k, s=s, t=t, method='interpolate')
 
     def test___init__(self):
         # check  defaults
@@ -902,21 +910,21 @@ class TestSpline2D:
 
         return BivariateSpline._from_tck(tck), fp, ier, msg
 
-    def check_fit_spline(self, spl, fp, ier, msg, w=None, kx=3, ky=3,
+    def check_interpolate_data(self, spl, fp, ier, msg, w=None, kx=3, ky=3,
                          s=None, tx=None, ty=None):
         if ((tx is None) and (ty is not None)) or ((tx is not None) and (ty is None)):
             with pytest.raises(ValueError):
-                spl.fit_spline(self.x, self.y, self.z, w=w, kx=kx, ky=ky,
+                spl.interpolate_data(self.x, self.y, self.z, w=w, kx=kx, ky=ky,
                                s=s, tx=tx, ty=ty)
             return False
         elif (s is not None) and (tx is not None):
             with pytest.warns(AstropyUserWarning):
                 test_fp, test_ier, test_msg = \
-                    spl.fit_spline(self.x, self.y, self.z, w=w,
+                    spl.interpolate_data(self.x, self.y, self.z, w=w,
                                    kx=kx, ky=ky, s=s, tx=tx, ty=ty)
         else:
             test_fp, test_ier, test_msg = \
-                spl.fit_spline(self.x, self.y, self.z, w=w,
+                spl.interpolate_data(self.x, self.y, self.z, w=w,
                                kx=kx, ky=ky, s=s, tx=tx, ty=ty)
 
         assert fp == test_fp
@@ -926,7 +934,7 @@ class TestSpline2D:
         return True
 
     def check_fitter(self, fitter, spl, fp, ier, msg, w=None, kx=3, ky=3,
-                     s=None, tx=None, ty=None):
+                     s=None, tx=None, ty=None, method='lsq'):
 
         assert fitter.fit_info['fp'] is None
         assert fitter.fit_info['ier'] is None
@@ -935,15 +943,15 @@ class TestSpline2D:
         if ((tx is None) and (ty is not None)) or ((tx is not None) and (ty is None)):
             with pytest.raises(ValueError):
                 fitter(spl, self.x, self.y, self.z,
-                       w=w, k=(kx, ky), s=s, t=(tx, ty))
+                       w=w, k=(kx, ky), s=s, t=(tx, ty), method=method)
             return False, None
         elif (s is not None) and (tx is not None):
             with pytest.warns(AstropyUserWarning):
                 fit = fitter(spl, self.x, self.y, self.z,
-                             w=w, k=(kx, ky), s=s, t=(tx, ty))
+                             w=w, k=(kx, ky), s=s, t=(tx, ty), method=method)
         else:
             fit = fitter(spl, self.x, self.y, self.z,
-                         w=w, k=(kx, ky), s=s, t=(tx, ty))
+                         w=w, k=(kx, ky), s=s, t=(tx, ty), method=method)
 
         assert fitter.fit_info['fp'] == fp
         assert fitter.fit_info['ier'] == ier
@@ -975,21 +983,21 @@ class TestSpline2D:
 
         # Test warning
         with pytest.warns(AstropyUserWarning):
-            spl.fit_spline(self.x, self.y, self.z)
+            spl.interpolate_data(self.x, self.y, self.z)
 
     @pytest.mark.parametrize(fitting_variables_2D, fitting_tests_2D)
-    def test_fit_spline(self, w, kx, ky, s, tx, ty):
+    def test_interpolate_data(self, w, kx, ky, s, tx, ty):
         spl = Spline2D()
 
         truth, fp, ier, msg = self.generate_spline()
-        check = self.check_fit_spline(spl, fp, ier, msg)
+        check = self.check_interpolate_data(spl, fp, ier, msg)
         if check:
             self.check_fit(spl, truth)
 
         spl.reset()
         truth, fp, ier, msg = self.generate_spline(w=w, kx=kx, ky=ky,
                                                    s=s, tx=tx, ty=ty)
-        check = self.check_fit_spline(spl, fp, ier, msg, w=w, kx=kx, ky=ky,
+        check = self.check_interpolate_data(spl, fp, ier, msg, w=w, kx=kx, ky=ky,
                                       s=s, tx=tx, ty=ty)
         if check:
             self.check_fit(spl, truth, kx=kx, ky=ky)
@@ -999,13 +1007,13 @@ class TestSpline2D:
         truth, fp, ier, msg = self.generate_spline(w=w, kx=kx, ky=ky,
                                                    s=s, tx=tx, ty=ty,
                                                    bbox=spl.bbox)
-        check = self.check_fit_spline(spl, fp, ier, msg, w=w, kx=kx, ky=ky,
+        check = self.check_interpolate_data(spl, fp, ier, msg, w=w, kx=kx, ky=ky,
                                       s=s, tx=tx, ty=ty)
         if check:
             self.check_fit(spl, truth, kx=kx, ky=ky)
 
     @pytest.mark.parametrize(fitting_variables_2D, fitting_tests_2D)
-    def test_SplineFitter(self, w, kx, ky, s, tx, ty):
+    def test_SplineFitter_interpolate(self, w, kx, ky, s, tx, ty):
         fitter = SplineFitter()
         spl = Spline2D()
 
@@ -1014,14 +1022,14 @@ class TestSpline2D:
                                                    s=s, tx=tx, ty=ty)
         check, fit = self.check_fitter(fitter, spl, fp, ier, msg,
                                        w=w, kx=kx, ky=ky,
-                                       s=s, tx=tx, ty=ty)
+                                       s=s, tx=tx, ty=ty, method='interpolate')
         if check:
             assert id(fit) != id(spl)
             self.check_fit(fit, truth, kx=kx, ky=ky)
 
         # Check defaults
         truth, fp, ier, msg = self.generate_spline()
-        fit = fitter(spl, self.x, self.y, self.z)
+        fit = fitter(spl, self.x, self.y, self.z, method='interpolate')
         assert fitter.fit_info['fp'] == fp
         assert fitter.fit_info['ier'] == ier
         assert fitter.fit_info['msg'] == msg
@@ -1031,24 +1039,24 @@ class TestSpline2D:
         # No z data
         with pytest.raises(ValueError):
             fitter(spl, self.x, self.y,
-                   w=w, k=(kx, ky), s=s, t=(tx, ty))
+                   w=w, k=(kx, ky), s=s, t=(tx, ty), method='interpolate')
 
         # Single k
         with pytest.raises(ValueError):
             fitter(spl, self.x, self.y, self.z,
-                   w=w, k=kx, s=s, t=(tx, ty))
+                   w=w, k=kx, s=s, t=(tx, ty), method='interpolate')
 
         # Single t
         if tx is not None:
             with pytest.raises(ValueError):
                 fitter(spl, self.x, self.y, self.z,
-                       w=w, k=(kx, ky), s=s, t=tx)
+                       w=w, k=(kx, ky), s=s, t=tx, method='interpolate')
 
         # Bad model input
         with pytest.raises(ModelDefinitionError,
                            match=r"Only spline models are compatible with this fitter"):
             fitter(mk.MagicMock(), self.x, self.y, self.z,
-                   w=w, k=(kx, ky), s=s, t=(tx, ty))
+                   w=w, k=(kx, ky), s=s, t=(tx, ty), method='interpolate')
 
     def test___init__(self):
         # check  defaults
