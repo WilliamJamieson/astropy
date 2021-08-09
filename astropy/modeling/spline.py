@@ -509,7 +509,7 @@ class Spline2D(Fittable2DModel, _Spline):
         elif isinstance(value, BivariateSpline):
             self.tck = (value.get_knots(), value.get_coeffs(), value.degrees)
         else:
-            raise NotImplementedError('tck-tuple and BivariateSpline setting implemented')
+            raise NotImplementedError('Only tck-tuple and BivariateSpline setting implemented')
 
     def _get_spline(self):
         from scipy.interpolate import BivariateSpline
@@ -627,7 +627,6 @@ class Spline2D(Fittable2DModel, _Spline):
         """
 
         from scipy.interpolate import LSQBivariateSpline
-
-        spline = LSQBivariateSpline(x, y, z, tx, ty, w=w, bbox=self.bbox,
-                                    kx=kx, ky=ky, eps=eps)
-        self.tck = (spline.get_knots(), spline.get_coeffs(), tuple(spline.degrees))
+        self.tck = LSQBivariateSpline(x, y, z, tx, ty, w=w, bbox=self.bbox,
+                                      kx=kx, ky=ky, eps=eps)
+        # self.tck = (spline.get_knots(), spline.get_coeffs(), tuple(spline.degrees))
