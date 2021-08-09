@@ -1028,10 +1028,33 @@ class _NonLinearLSQFitter(metaclass=_FitterMeta):
     The constraint types supported by this fitter type.
     """
 
-    def __init__(self, calc_uncertainties=False):
+    def __init__(self, calc_uncertainties=False, check_bounds=True):
         self.fit_info = None
         self._calc_uncertainties = calc_uncertainties
+        self._check_bounds = check_bounds
         super().__init__()
+
+    def objective_function(self, fps, *args):
+        """
+        Function to minimize.
+
+        Parameters
+        ----------
+        fps : list
+            parameters returned by the fitter
+        args : list
+            [model, [weights], [input coordinates]]
+
+        """
+
+        model = args[0]
+        weights = args[1]
+        _fitter_to_model_params(model, fps, self._check_bounds)
+        meas = args[-1]
+        if weights is None:
+            return np.ravel(model(*args[2: -1]) - meas)
+        else:
+            return np.ravel(weights * (model(*args[2: -1]) - meas))
 
     @staticmethod
     def _add_fitting_uncertainties(model, cov_matrix):
@@ -1144,28 +1167,6 @@ class LevMarLSQFitter(_NonLinearLSQFitter):
                          'ierr': None,
                          'param_jac': None,
                          'param_cov': None}
-
-    def objective_function(self, fps, *args):
-        """
-        Function to minimize.
-
-        Parameters
-        ----------
-        fps : list
-            parameters returned by the fitter
-        args : list
-            [model, [weights], [input coordinates]]
-
-        """
-
-        model = args[0]
-        weights = args[1]
-        _fitter_to_model_params(model, fps)
-        meas = args[-1]
-        if weights is None:
-            return np.ravel(model(*args[2: -1]) - meas)
-        else:
-            return np.ravel(weights * (model(*args[2: -1]) - meas))
 
     @fitter_unit_support
     def __call__(self, model, x, y, z=None, weights=None,
@@ -1281,31 +1282,8 @@ class TRFLSQFitter(_NonLinearLSQFitter):
     """
 
     def __init__(self, calc_uncertainties=False, method='trf', check_bounds=False):
-        super().__init__(calc_uncertainties)
+        super().__init__(calc_uncertainties, check_bounds)
         self._method = method
-        self._check_bounds = check_bounds
-
-    def objective_function(self, fps, *args):
-        """
-        Function to minimize.
-
-        Parameters
-        ----------
-        fps : list
-            parameters returned by the fitter
-        args : list
-            [model, [weights], [input coordinates]]
-
-        """
-
-        model = args[0]
-        weights = args[1]
-        _fitter_to_model_params(model, fps, self._check_bounds)
-        meas = args[-1]
-        if weights is None:
-            return np.ravel(model(*args[2: -1]) - meas)
-        else:
-            return np.ravel(weights * (model(*args[2: -1]) - meas))
 
     @fitter_unit_support
     def __call__(self, model, x, y, z=None, weights=None,
