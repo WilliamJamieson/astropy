@@ -1605,7 +1605,8 @@ class SplineFitter(metaclass=_FitterMeta):
         self.fit_info['ier'] = ier
         self.fit_info['msg'] = msg
 
-    def __call__(self, model, x, y, z=None, *, method='lsq', w=None, k=None, s=None, t=None):
+    def __call__(self, model, x, y, z=None, *, method='lsq', w=None, k=None, s=None, t=None,
+                 ghost_knots=True):
         """
         Fit spline
 
@@ -1647,6 +1648,13 @@ class SplineFitter(metaclass=_FitterMeta):
             Fit knots to be used.
             If 2-D then knots in both directions must be included.
             This will override any setting for s.
+        ghost_knots : optional, bool
+            Determines if there are ghost_knots or not. If False the knots
+            must be in ascending order and:
+            x[0] < t[0] < ... < t[-1] < x[-1]
+            If True the knots must satisfy Schoenberg-Whitney conditions, i.e.
+            the first k + 1 knots must be x[0] and the last k - 1 must be x[-1]
+            while the remaining interior knots must be in strictly ascending order.
         """
 
         if method not in ['lsq', 'interpolate']:
@@ -1667,7 +1675,7 @@ class SplineFitter(metaclass=_FitterMeta):
                 fp, ier, msg = model_copy.interpolate_data(x, y, w=w, k=k, s=s, t=t)
                 self._set_fit_info(fp, ier, msg)
             else:
-                model_copy.fit_data(x, y, t, w=w, k=k)
+                model_copy.fit_data(x, y, t, w=w, k=k, ghost_knots=ghost_knots)
 
             return model_copy
 
