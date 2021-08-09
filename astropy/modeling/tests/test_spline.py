@@ -27,6 +27,14 @@ test_w = np.random.rand(npts)
 test_t = [-1, 0, 1]
 noise = np.random.randn(npts)
 
+if HAS_SCIPY:
+    import scipy
+    from astropy.utils import minversion
+
+    HAS_SCIPY_BUGFIX = minversion(scipy, '1.6.1')
+else:
+    HAS_SCIPY_BUGFIX = False
+
 
 class TestSpline:
     def setup_class(self):
@@ -1134,6 +1142,9 @@ class TestSpline2D:
                    w=w, k=(kx, ky), s=s, t=(tx, ty), method='interpolate')
 
     @pytest.mark.parametrize(fitting_variables_2D, fitting_tests_2D)
+    @pytest.mark.skipif(not HAS_SCIPY_BUGFIX,
+                        reason="There is a bug in older versions of scipy"
+                        "which can cause a segfault see: https://github.com/scipy/scipy/pull/13394")
     def test_fit_data(self, w, kx, ky):
         spl = Spline2D()
         truth = self.fit_spline(w=w, kx=kx, ky=ky)
@@ -1142,6 +1153,9 @@ class TestSpline2D:
         self.check_fit(spl, truth, kx=kx, ky=ky)
 
     @pytest.mark.parametrize(fitting_variables_2D, fitting_tests_2D)
+    @pytest.mark.skipif(not HAS_SCIPY_BUGFIX,
+                        reason="There is a bug in older versions of scipy"
+                        "which can cause a segfault see: https://github.com/scipy/scipy/pull/13394")
     def test_SplineFitter_lsq(self, w, kx, ky):
         fitter = SplineFitter()
         spl = Spline2D()
