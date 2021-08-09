@@ -1129,6 +1129,21 @@ class _NonLinearLSQFitter(metaclass=_FitterMeta):
                             (np.ravel(weights) * np.array(model.fit_deriv(x, y, *params)).T).T]
                 return [np.ravel(_) for _ in weights * np.array(model.fit_deriv(x, y, *params))]
 
+    def _compute_param_cov(self, model, y, init_values, cov_x, fitparams, farg):
+        # now try to compute the true covariance matrix
+        if (len(y) > len(init_values)) and cov_x is not None:
+            sum_sqrs = np.sum(self.objective_function(fitparams, *farg)**2)
+            dof = len(y) - len(init_values)
+            self.fit_info['param_cov'] = cov_x * sum_sqrs / dof
+        else:
+            self.fit_info['param_cov'] = None
+
+        if self._calc_uncertainties is True:
+            if self.fit_info['param_cov'] is not None:
+                self._add_fitting_uncertainties(model,
+                                                self.fit_info['param_cov'])
+        model.sync_constraints = True
+
 
 class LevMarLSQFitter(_NonLinearLSQFitter):
     """
@@ -1238,20 +1253,7 @@ class LevMarLSQFitter(_NonLinearLSQFitter):
                           "fit_info['message'] for more information.",
                           AstropyUserWarning)
 
-        # now try to compute the true covariance matrix
-        if (len(y) > len(init_values)) and cov_x is not None:
-            sum_sqrs = np.sum(self.objective_function(fitparams, *farg)**2)
-            dof = len(y) - len(init_values)
-            self.fit_info['param_cov'] = cov_x * sum_sqrs / dof
-        else:
-            self.fit_info['param_cov'] = None
-
-        if self._calc_uncertainties is True:
-            if self.fit_info['param_cov'] is not None:
-                self._add_fitting_uncertainties(model_copy,
-                                               self.fit_info['param_cov'])
-
-        model_copy.sync_constraints = True
+        self._compute_param_cov(model_copy, y, init_values, cov_x, fitparams, farg)
         return model_copy
 
 
@@ -1375,20 +1377,7 @@ class TRFLSQFitter(_NonLinearLSQFitter):
                           f"    {self.fit_info.message}",
                           AstropyUserWarning)
 
-        # now try to compute the true covariance matrix
-        if (len(y) > len(init_values)) and cov_x is not None:
-            sum_sqrs = np.sum(self.objective_function(self.fit_info.x, *farg)**2)
-            dof = len(y) - len(init_values)
-            self.fit_info['param_cov'] = cov_x * sum_sqrs / dof
-        else:
-            self.fit_info['param_cov'] = None
-
-        if self._calc_uncertainties is True:
-            if self.fit_info['param_cov'] is not None:
-                self._add_fitting_uncertainties(model_copy,
-                                                self.fit_info['param_cov'])
-
-        model_copy.sync_constraints = True
+        self._compute_param_cov(model_copy, y, init_values, cov_x, self.fit_info.x, farg)
         return model_copy
 
 
