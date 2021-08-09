@@ -21,6 +21,7 @@ from astropy.modeling.spline import (_Spline, Spline1D, Spline2D,)
 from astropy.modeling.fitting import SplineFitter
 
 npts = 50
+nknots = 10
 np.random.seed(42)
 test_w = np.random.rand(npts)
 test_t = [-1, 0, 1]
@@ -474,8 +475,8 @@ class TestSpline:
         assert new_kwargs == kwargs
 
 
-fitting_variables_1D = ('w', 'k', 's', 't')
-fitting_tests_1D = [
+interpolating_variables_1D = ('w', 'k', 's', 't')
+interpolating_tests_1D = [
     (None,   1, None, None),
     (None,   2, None, None),
     (None,   3, None, None),
@@ -490,6 +491,17 @@ fitting_tests_1D = [
     (None,   3, None, test_t),
     (None,   1, None, test_t),
     (None,   1, npts, test_t),
+]
+
+fitting_variables_1D = ('w', 'k')
+fitting_tests_1D = [
+    (None,   1),
+    (None,   2),
+    (None,   3),
+    (None,   4),
+    (None,   5),
+    (test_w, 3),
+    (test_w, 1),
 ]
 
 
@@ -513,7 +525,9 @@ class TestSpline1D:
         self.npts_out = 1000
         self.xs = np.linspace(-3, 3, self.npts_out)
 
-    def generate_spline(self, w=None, bbox=[None]*2, k=None, s=None, t=None):
+        self.t_inside = np.linspace(-3, 3, nknots)[1:-1]
+
+    def interpolate_spline(self, w=None, bbox=[None]*2, k=None, s=None, t=None):
         if k is None:
             k = 3
 
@@ -523,6 +537,17 @@ class TestSpline1D:
                                    k=k, s=s, t=t, full_output=1)
 
         return BSpline(*tck), fp, ier, msg
+
+    def get_knots(self, k):
+        return np.concatenate(([self.x[0]]*(k + 1), self.t_inside, [self.x[-1]]*(k + 1)))
+
+    def fit_spline(self, w=None, k=None):
+        if k is None:
+            k = 3
+
+        from scipy.interpolate import make_lsq_spline
+
+        return make_lsq_spline(self.x, self.y, self.get_knots(k), k=k, w=w)
 
     def check_interpolate_data(self, spl, x, y, fp, ier, msg, w=None, k=3, s=None, t=None):
         if (s is not None) and (t is not None):
@@ -575,58 +600,44 @@ class TestSpline1D:
         with pytest.warns(AstropyUserWarning):
             spl.interpolate_data(self.x, self.y)
 
-    def run_fit_check(self, spl, w=None, k=3, s=None, t=None, bbox=[None]*2):
-        truth, fp, ier, msg = self.generate_spline(w=w, k=k, s=s, t=t, bbox=bbox)
+    def run_interpolate_check(self, spl, w=None, k=3, s=None, t=None, bbox=[None]*2):
+        truth, fp, ier, msg = self.interpolate_spline(w=w, k=k, s=s, t=t, bbox=bbox)
 
         spl.reset()
         self.check_interpolate_data(spl, self.x, self.y, fp, ier, msg,
-                              w=w, k=k, s=s, t=t)
+                                    w=w, k=k, s=s, t=t)
         self.check_fit(spl, truth, k=k)
 
         spl.reset()
         self.check_interpolate_data(spl, self.x_s, self.y_s, fp, ier, msg,
-                              w=w, k=k, s=s, t=t)
+                                    w=w, k=k, s=s, t=t)
         self.check_fit(spl, truth, k=k)
 
-    def test_fit_data(self):
-        spl = Spline1D()
-
-        np.random.seed(42)
-        x = np.linspace(-3, 3, 50)
-        y = np.exp(-x**2) + 0.1 * np.random.standard_normal(50)
-
-        t = [-1, 0, 1]
-        k = 3
-        t = np.r_[(x[0],)*(k+1), t, (x[-1],)*(k+1)]
-
-        spl.fit_data(x, y, t, k)
-
-    @pytest.mark.parametrize(fitting_variables_1D, fitting_tests_1D)
+    @pytest.mark.parametrize(interpolating_variables_1D, interpolating_tests_1D)
     def test_interpolate_data(self, w, k, s, t):
         spl = Spline1D()
 
         # Normal
-        self.run_fit_check(spl, w=w, k=k, s=s, t=t)
+        self.run_interpolate_check(spl, w=w, k=k, s=s, t=t)
 
         spl.reset()
         bbox = (-4, 4)
         spl.bounding_box = bbox
-        self.run_fit_check(spl, w=w, k=k, s=s, t=t, bbox=bbox)
+        self.run_interpolate_check(spl, w=w, k=k, s=s, t=t, bbox=bbox)
 
-    @pytest.mark.parametrize(fitting_variables_1D, fitting_tests_1D)
+    @pytest.mark.parametrize(interpolating_variables_1D, interpolating_tests_1D)
     def test_SplineFitter_interpolate(self, w, k, s, t):
         fitter = SplineFitter()
         spl = Spline1D()
 
         # Main check
-        truth, fp, ier, msg = self.generate_spline(w=w, k=k, s=s, t=t)
+        truth, fp, ier, msg = self.interpolate_spline(w=w, k=k, s=s, t=t)
         fit = self.check_fitter(fitter, spl, fp, ier, msg,
                                 w=w, k=k, s=s, t=t, method='interpolate')
-        assert id(fit) != id(spl)
         self.check_fit(fit, truth, k=k)
 
         # Check defaults
-        truth, fp, ier, msg = self.generate_spline()
+        truth, fp, ier, msg = self.interpolate_spline()
         fit = fitter(spl, self.x, self.y, method='interpolate')
         assert fitter.fit_info['fp'] == fp
         assert fitter.fit_info['ier'] == ier
@@ -650,6 +661,37 @@ class TestSpline1D:
         with pytest.raises(ModelDefinitionError,
                            match=r"Only spline models are compatible with this fitter"):
             fitter(mk.MagicMock(), self.x, self.y, w=w, k=k, s=s, t=t, method='interpolate')
+
+    @pytest.mark.parametrize(fitting_variables_1D, fitting_tests_1D)
+    def test_fit_data(self, w, k):
+        truth = self.fit_spline(w=w, k=k)
+
+        spl = Spline1D()
+
+        # With ghost knots
+        spl.fit_data(self.x, self.y, self.get_knots(k), k=k, w=w)
+        self.check_fit(spl, truth, k)
+
+        # Without ghost knots
+        spl.reset()
+        spl.fit_data(self.x, self.y, self.t_inside, k=k, w=w, ghost_knots=False)
+        self.check_fit(spl, truth, k)
+
+    @pytest.mark.parametrize(fitting_variables_1D, fitting_tests_1D)
+    def test_SplineFitter_lsq(self, w, k):
+        fitter = SplineFitter()
+        spl = Spline1D()
+        truth = self.fit_spline(w=w, k=k)
+
+        # With ghost knots
+        fit = fitter(spl, self.x, self.y, t=self.get_knots(k), k=k, w=w)
+        assert id(fit) != id(spl)
+        self.check_fit(fit, truth, k=k)
+
+        # Without ghost knots
+        fit = fitter(spl, self.x, self.y, t=self.t_inside, k=k, w=w, ghost_knots=False)
+        assert id(fit) != id(spl)
+        self.check_fit(fit, truth, k=k)
 
     def test___init__(self):
         # check  defaults
@@ -686,7 +728,7 @@ class TestSpline1D:
 
         spl.reset()
         # Realistic set
-        bspline = self.generate_spline()[0]
+        bspline = self.interpolate_spline()[0]
         spl.tck = bspline
         assert spl.tck == bspline.tck
         assert (spl.knots == spl._t).all()
@@ -708,14 +750,14 @@ class TestSpline1D:
 
     def test_spline(self):
         spl = Spline1D()
-        bspline = self.generate_spline()[0]
+        bspline = self.interpolate_spline()[0]
         spl.spline = bspline
 
         assert spl.spline.tck == bspline.tck
 
     def test_evaluate(self):
         spl = Spline1D()
-        truth = self.generate_spline()[0]
+        truth = self.interpolate_spline()[0]
         spl.spline = truth
 
         assert (spl.evaluate(self.xs) == truth(self.xs)).all()
@@ -781,7 +823,7 @@ class TestSpline1D:
 
     def test_derivative(self):
         spl = Spline1D()
-        spl.spline = self.generate_spline()[0]
+        spl.spline = self.interpolate_spline()[0]
 
         der = spl.derivative()
         assert der.degree == 2
@@ -806,7 +848,7 @@ class TestSpline1D:
 
     def test_antiderivative(self):
         spl = Spline1D()
-        spl.spline = self.generate_spline()[0]
+        spl.spline = self.interpolate_spline()[0]
 
         anti = spl.antiderivative()
         assert anti.degree == 4
