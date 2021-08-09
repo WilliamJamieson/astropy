@@ -1018,7 +1018,96 @@ class FittingWithOutlierRemoval:
         return fitted_model, filtered_data.mask
 
 
-class LevMarLSQFitter(metaclass=_FitterMeta):
+class _NonLinearLSQFitter(metaclass=_FitterMeta):
+    """
+    Base class for Non-Linear least-squares fitters
+    """
+
+    supported_constraints = ['fixed', 'tied', 'bounds']
+    """
+    The constraint types supported by this fitter type.
+    """
+
+    def __init__(self, calc_uncertainties=False):
+        self.fit_info = None
+        self._calc_uncertainties = calc_uncertainties
+        super().__init__()
+
+    @staticmethod
+    def _add_fitting_uncertainties(model, cov_matrix):
+        """
+        Set ``cov_matrix`` and ``stds`` attributes on model with parameter
+        covariance matrix returned by ``optimize.leastsq``.
+        """
+
+        free_param_names = [x for x in model.fixed if (model.fixed[x] is False)
+                            and (model.tied[x] is False)]
+
+        model.cov_matrix = Covariance(cov_matrix, free_param_names)
+        model.stds = StandardDeviations(cov_matrix, free_param_names)
+
+    @staticmethod
+    def _wrap_deriv(params, model, weights, x, y, z=None):
+        """
+        Wraps the method calculating the Jacobian of the function to account
+        for model constraints.
+        `scipy.optimize.leastsq` expects the function derivative to have the
+        above signature (parlist, (argtuple)). In order to accommodate model
+        constraints, instead of using p directly, we set the parameter list in
+        this function.
+        """
+
+        if weights is None:
+            weights = 1.0
+
+        if any(model.fixed.values()) or any(model.tied.values()):
+            # update the parameters with the current values from the fitter
+            _fitter_to_model_params(model, params)
+            if z is None:
+                full = np.array(model.fit_deriv(x, *model.parameters))
+                if not model.col_fit_deriv:
+                    full_deriv = np.ravel(weights) * full.T
+                else:
+                    full_deriv = np.ravel(weights) * full
+            else:
+                full = np.array([np.ravel(_) for _ in model.fit_deriv(x, y, *model.parameters)])
+                if not model.col_fit_deriv:
+                    full_deriv = np.ravel(weights) * full.T
+                else:
+                    full_deriv = np.ravel(weights) * full
+
+            pars = [getattr(model, name) for name in model.param_names]
+            fixed = [par.fixed for par in pars]
+            tied = [par.tied for par in pars]
+            tied = list(np.where([par.tied is not False for par in pars],
+                                 True, tied))
+            fix_and_tie = np.logical_or(fixed, tied)
+            ind = np.logical_not(fix_and_tie)
+
+            if not model.col_fit_deriv:
+                residues = np.asarray(full_deriv[np.nonzero(ind)]).T
+            else:
+                residues = full_deriv[np.nonzero(ind)]
+
+            return [np.ravel(_) for _ in residues]
+        else:
+            if z is None:
+                try:
+                    return np.array([np.ravel(_) for _ in np.array(weights) *
+                                     np.array(model.fit_deriv(x, *params))])
+                except ValueError:
+                    return np.array([np.ravel(_) for _ in np.array(weights) *
+                                     np.moveaxis(
+                                         np.array(model.fit_deriv(x, *params)),
+                                         -1, 0)]).transpose()
+            else:
+                if not model.col_fit_deriv:
+                    return [np.ravel(_) for _ in
+                            (np.ravel(weights) * np.array(model.fit_deriv(x, y, *params)).T).T]
+                return [np.ravel(_) for _ in weights * np.array(model.fit_deriv(x, y, *params))]
+
+
+class LevMarLSQFitter(_NonLinearLSQFitter):
     """
     Levenberg-Marquardt algorithm and least squares statistic.
 
@@ -1044,12 +1133,8 @@ class LevMarLSQFitter(metaclass=_FitterMeta):
 
     """
 
-    supported_constraints = ['fixed', 'tied', 'bounds']
-    """
-    The constraint types supported by this fitter type.
-    """
-
     def __init__(self, calc_uncertainties=False):
+        super().__init__(calc_uncertainties)
         self.fit_info = {'nfev': None,
                          'fvec': None,
                          'fjac': None,
@@ -1059,8 +1144,6 @@ class LevMarLSQFitter(metaclass=_FitterMeta):
                          'ierr': None,
                          'param_jac': None,
                          'param_cov': None}
-        self._calc_uncertainties=calc_uncertainties
-        super().__init__()
 
     def objective_function(self, fps, *args):
         """
@@ -1083,19 +1166,6 @@ class LevMarLSQFitter(metaclass=_FitterMeta):
             return np.ravel(model(*args[2: -1]) - meas)
         else:
             return np.ravel(weights * (model(*args[2: -1]) - meas))
-
-    @staticmethod
-    def _add_fitting_uncertainties(model, cov_matrix):
-        """
-        Set ``cov_matrix`` and ``stds`` attributes on model with parameter
-        covariance matrix returned by ``optimize.leastsq``.
-        """
-
-        free_param_names = [x for x in model.fixed if (model.fixed[x] is False)
-                            and (model.tied[x] is False)]
-
-        model.cov_matrix = Covariance(cov_matrix, free_param_names)
-        model.stds = StandardDeviations(cov_matrix, free_param_names)
 
     @fitter_unit_support
     def __call__(self, model, x, y, z=None, weights=None,
@@ -1183,68 +1253,8 @@ class LevMarLSQFitter(metaclass=_FitterMeta):
         model_copy.sync_constraints = True
         return model_copy
 
-    @staticmethod
-    def _wrap_deriv(params, model, weights, x, y, z=None):
-        """
-        Wraps the method calculating the Jacobian of the function to account
-        for model constraints.
-        `scipy.optimize.leastsq` expects the function derivative to have the
-        above signature (parlist, (argtuple)). In order to accommodate model
-        constraints, instead of using p directly, we set the parameter list in
-        this function.
-        """
 
-        if weights is None:
-            weights = 1.0
-
-        if any(model.fixed.values()) or any(model.tied.values()):
-            # update the parameters with the current values from the fitter
-            _fitter_to_model_params(model, params)
-            if z is None:
-                full = np.array(model.fit_deriv(x, *model.parameters))
-                if not model.col_fit_deriv:
-                    full_deriv = np.ravel(weights) * full.T
-                else:
-                    full_deriv = np.ravel(weights) * full
-            else:
-                full = np.array([np.ravel(_) for _ in model.fit_deriv(x, y, *model.parameters)])
-                if not model.col_fit_deriv:
-                    full_deriv = np.ravel(weights) * full.T
-                else:
-                    full_deriv = np.ravel(weights) * full
-
-            pars = [getattr(model, name) for name in model.param_names]
-            fixed = [par.fixed for par in pars]
-            tied = [par.tied for par in pars]
-            tied = list(np.where([par.tied is not False for par in pars],
-                                 True, tied))
-            fix_and_tie = np.logical_or(fixed, tied)
-            ind = np.logical_not(fix_and_tie)
-
-            if not model.col_fit_deriv:
-                residues = np.asarray(full_deriv[np.nonzero(ind)]).T
-            else:
-                residues = full_deriv[np.nonzero(ind)]
-
-            return [np.ravel(_) for _ in residues]
-        else:
-            if z is None:
-                try:
-                    return np.array([np.ravel(_) for _ in np.array(weights) *
-                                     np.array(model.fit_deriv(x, *params))])
-                except ValueError:
-                    return np.array([np.ravel(_) for _ in np.array(weights) *
-                                     np.moveaxis(
-                                         np.array(model.fit_deriv(x, *params)),
-                                         -1, 0)]).transpose()
-            else:
-                if not model.col_fit_deriv:
-                    return [np.ravel(_) for _ in
-                            (np.ravel(weights) * np.array(model.fit_deriv(x, y, *params)).T).T]
-                return [np.ravel(_) for _ in weights * np.array(model.fit_deriv(x, y, *params))]
-
-
-class TRFLSQFitter(metaclass=_FitterMeta):
+class TRFLSQFitter(_NonLinearLSQFitter):
     """
     Trust Region Reflective (dogbox or Levenberg-Marqueardt) algorithm
     and least squares statistic.
@@ -1270,17 +1280,10 @@ class TRFLSQFitter(metaclass=_FitterMeta):
             efficient method for small unconstrained problems.
     """
 
-    supported_constraints = ['fixed', 'tied', 'bounds']
-    """
-    The constraint types supported by this fitter type.
-    """
-
     def __init__(self, calc_uncertainties=False, method='trf', check_bounds=False):
-        self.fit_info = None
-        self._calc_uncertainties = calc_uncertainties
+        super().__init__(calc_uncertainties)
         self._method = method
         self._check_bounds = check_bounds
-        super().__init__()
 
     def objective_function(self, fps, *args):
         """
@@ -1303,19 +1306,6 @@ class TRFLSQFitter(metaclass=_FitterMeta):
             return np.ravel(model(*args[2: -1]) - meas)
         else:
             return np.ravel(weights * (model(*args[2: -1]) - meas))
-
-    @staticmethod
-    def _add_fitting_uncertainties(model, cov_matrix):
-        """
-        Set ``cov_matrix`` and ``stds`` attributes on model with parameter
-        covariance matrix returned by ``optimize.leastsq``.
-        """
-
-        free_param_names = [x for x in model.fixed if (model.fixed[x] is False)
-                            and (model.tied[x] is False)]
-
-        model.cov_matrix = Covariance(cov_matrix, free_param_names)
-        model.stds = StandardDeviations(cov_matrix, free_param_names)
 
     @fitter_unit_support
     def __call__(self, model, x, y, z=None, weights=None,
@@ -1422,66 +1412,6 @@ class TRFLSQFitter(metaclass=_FitterMeta):
 
         model_copy.sync_constraints = True
         return model_copy
-
-    @staticmethod
-    def _wrap_deriv(params, model, weights, x, y, z=None):
-        """
-        Wraps the method calculating the Jacobian of the function to account
-        for model constraints.
-        `scipy.optimize.leastsq` expects the function derivative to have the
-        above signature (parlist, (argtuple)). In order to accommodate model
-        constraints, instead of using p directly, we set the parameter list in
-        this function.
-        """
-
-        if weights is None:
-            weights = 1.0
-
-        if any(model.fixed.values()) or any(model.tied.values()):
-            # update the parameters with the current values from the fitter
-            _fitter_to_model_params(model, params)
-            if z is None:
-                full = np.array(model.fit_deriv(x, *model.parameters))
-                if not model.col_fit_deriv:
-                    full_deriv = np.ravel(weights) * full.T
-                else:
-                    full_deriv = np.ravel(weights) * full
-            else:
-                full = np.array([np.ravel(_) for _ in model.fit_deriv(x, y, *model.parameters)])
-                if not model.col_fit_deriv:
-                    full_deriv = np.ravel(weights) * full.T
-                else:
-                    full_deriv = np.ravel(weights) * full
-
-            pars = [getattr(model, name) for name in model.param_names]
-            fixed = [par.fixed for par in pars]
-            tied = [par.tied for par in pars]
-            tied = list(np.where([par.tied is not False for par in pars],
-                                 True, tied))
-            fix_and_tie = np.logical_or(fixed, tied)
-            ind = np.logical_not(fix_and_tie)
-
-            if not model.col_fit_deriv:
-                residues = np.asarray(full_deriv[np.nonzero(ind)]).T
-            else:
-                residues = full_deriv[np.nonzero(ind)]
-
-            return [np.ravel(_) for _ in residues]
-        else:
-            if z is None:
-                try:
-                    return np.array([np.ravel(_) for _ in np.array(weights) *
-                                     np.array(model.fit_deriv(x, *params))])
-                except ValueError:
-                    return np.array([np.ravel(_) for _ in np.array(weights) *
-                                     np.moveaxis(
-                                         np.array(model.fit_deriv(x, *params)),
-                                         -1, 0)]).transpose()
-            else:
-                if not model.col_fit_deriv:
-                    return [np.ravel(_) for _ in
-                            (np.ravel(weights) * np.array(model.fit_deriv(x, y, *params)).T).T]
-                return [np.ravel(_) for _ in weights * np.array(model.fit_deriv(x, y, *params))]
 
 
 class SLSQPLSQFitter(Fitter):
