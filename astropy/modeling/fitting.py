@@ -1142,7 +1142,67 @@ class _NonLinearLSQFitter(metaclass=_FitterMeta):
             if self.fit_info['param_cov'] is not None:
                 self._add_fitting_uncertainties(model,
                                                 self.fit_info['param_cov'])
+
+    def _run_fitter(self, model, farg, maxiter, acc, epsilon, estimate_jacobian):
+        return None, None, None
+
+    @fitter_unit_support
+    def __call__(self, model, x, y, z=None, weights=None,
+                 maxiter=DEFAULT_MAXITER, acc=DEFAULT_ACC,
+                 epsilon=DEFAULT_EPS, estimate_jacobian=False):
+        """
+        Fit data to this model.
+
+        Parameters
+        ----------
+        model : `~astropy.modeling.FittableModel`
+            model to fit to x, y, z
+        x : array
+           input coordinates
+        y : array
+           input coordinates
+        z : array, optional
+           input coordinates
+        weights : array, optional
+            Weights for fitting.
+            For data with Gaussian uncertainties, the weights should be
+            1/sigma.
+        maxiter : int
+            maximum number of iterations
+        acc : float
+            Relative error desired in the approximate solution
+        epsilon : float
+            A suitable step length for the forward-difference
+            approximation of the Jacobian (if model.fjac=None). If
+            epsfcn is less than the machine precision, it is
+            assumed that the relative errors in the functions are
+            of the order of the machine precision.
+        estimate_jacobian : bool
+            If False (default) and if the model has a fit_deriv method,
+            it will be used. Otherwise the Jacobian will be estimated.
+            If True, the Jacobian will be estimated in any case.
+        equivalencies : list or None, optional, keyword-only
+            List of *additional* equivalencies that are should be applied in
+            case x, y and/or z have units. Default is None.
+
+        Returns
+        -------
+        model_copy : `~astropy.modeling.FittableModel`
+            a copy of the input model with parameters set by the fitter
+
+        """
+
+        model_copy = _validate_model(model, self.supported_constraints)
+        model_copy.sync_constraints = False
+        farg = (model_copy, weights, ) + _convert_input(x, y, z)
+
+        init_values, fitparams, cov_x = self._run_fitter(model_copy, farg,
+                                                         maxiter, acc, epsilon, estimate_jacobian)
+
+        self._compute_param_cov(model_copy, y, init_values, cov_x, fitparams, farg)
+
         model.sync_constraints = True
+        return model_copy
 
 
 class LevMarLSQFitter(_NonLinearLSQFitter):
@@ -1183,67 +1243,19 @@ class LevMarLSQFitter(_NonLinearLSQFitter):
                          'param_jac': None,
                          'param_cov': None}
 
-    @fitter_unit_support
-    def __call__(self, model, x, y, z=None, weights=None,
-                 maxiter=DEFAULT_MAXITER, acc=DEFAULT_ACC,
-                 epsilon=DEFAULT_EPS, estimate_jacobian=False):
-        """
-        Fit data to this model.
-
-        Parameters
-        ----------
-        model : `~astropy.modeling.FittableModel`
-            model to fit to x, y, z
-        x : array
-           input coordinates
-        y : array
-           input coordinates
-        z : array, optional
-           input coordinates
-        weights : array, optional
-            Weights for fitting.
-            For data with Gaussian uncertainties, the weights should be
-            1/sigma.
-        maxiter : int
-            maximum number of iterations
-        acc : float
-            Relative error desired in the approximate solution
-        epsilon : float
-            A suitable step length for the forward-difference
-            approximation of the Jacobian (if model.fjac=None). If
-            epsfcn is less than the machine precision, it is
-            assumed that the relative errors in the functions are
-            of the order of the machine precision.
-        estimate_jacobian : bool
-            If False (default) and if the model has a fit_deriv method,
-            it will be used. Otherwise the Jacobian will be estimated.
-            If True, the Jacobian will be estimated in any case.
-        equivalencies : list or None, optional, keyword-only
-            List of *additional* equivalencies that are should be applied in
-            case x, y and/or z have units. Default is None.
-
-        Returns
-        -------
-        model_copy : `~astropy.modeling.FittableModel`
-            a copy of the input model with parameters set by the fitter
-
-        """
-
+    def _run_fitter(self, model, farg, maxiter, acc, epsilon, estimate_jacobian):
         from scipy import optimize
 
-        model_copy = _validate_model(model, self.supported_constraints)
-        model_copy.sync_constraints = False
-        farg = (model_copy, weights, ) + _convert_input(x, y, z)
-        if model_copy.fit_deriv is None or estimate_jacobian:
+        if model.fit_deriv is None or estimate_jacobian:
             dfunc = None
         else:
             dfunc = self._wrap_deriv
-        init_values, _, _ = _model_to_fit_params(model_copy)
+        init_values, _, _ = _model_to_fit_params(model)
         fitparams, cov_x, dinfo, mess, ierr = optimize.leastsq(
             self.objective_function, init_values, args=farg, Dfun=dfunc,
-            col_deriv=model_copy.col_fit_deriv, maxfev=maxiter, epsfcn=epsilon,
+            col_deriv=model.col_fit_deriv, maxfev=maxiter, epsfcn=epsilon,
             xtol=acc, full_output=True)
-        _fitter_to_model_params(model_copy, fitparams)
+        _fitter_to_model_params(model, fitparams)
         self.fit_info.update(dinfo)
         self.fit_info['cov_x'] = cov_x
         self.fit_info['message'] = mess
@@ -1253,8 +1265,7 @@ class LevMarLSQFitter(_NonLinearLSQFitter):
                           "fit_info['message'] for more information.",
                           AstropyUserWarning)
 
-        self._compute_param_cov(model_copy, y, init_values, cov_x, fitparams, farg)
-        return model_copy
+        return init_values, fitparams, cov_x
 
 
 class TRFLSQFitter(_NonLinearLSQFitter):
@@ -1287,71 +1298,22 @@ class TRFLSQFitter(_NonLinearLSQFitter):
         super().__init__(calc_uncertainties, check_bounds)
         self._method = method
 
-    @fitter_unit_support
-    def __call__(self, model, x, y, z=None, weights=None,
-                 maxiter=DEFAULT_MAXITER, acc=DEFAULT_ACC,
-                 epsilon=DEFAULT_EPS, estimate_jacobian=False):
-        """
-        Fit data to this model.
-
-        Parameters
-        ----------
-        model : `~astropy.modeling.FittableModel`
-            model to fit to x, y, z
-        x : array
-           input coordinates
-        y : array
-           input coordinates
-        z : array, optional
-           input coordinates
-        weights : array, optional
-            Weights for fitting.
-            For data with Gaussian uncertainties, the weights should be
-            1/sigma.
-        maxiter : int
-            maximum number of iterations
-        acc : float
-            Relative error desired in the approximate solution
-        epsilon : float
-            A suitable step length for the forward-difference
-            approximation of the Jacobian (if model.fjac=None). If
-            epsfcn is less than the machine precision, it is
-            assumed that the relative errors in the functions are
-            of the order of the machine precision.
-        estimate_jacobian : bool
-            If False (default) and if the model has a fit_deriv method,
-            it will be used. Otherwise the Jacobian will be estimated.
-            If True, the Jacobian will be estimated in any case.
-        equivalencies : list or None, optional, keyword-only
-            List of *additional* equivalencies that are should be applied in
-            case x, y and/or z have units. Default is None.
-
-        Returns
-        -------
-        model_copy : `~astropy.modeling.FittableModel`
-            a copy of the input model with parameters set by the fitter
-
-        """
-
+    def _run_fitter(self, model, farg, maxiter, acc, epsilon, estimate_jacobian):
         from scipy import optimize
         from scipy. linalg import svd
 
-        model_copy = _validate_model(model, self.supported_constraints)
-        model_copy.sync_constraints = False
-        farg = (model_copy, weights, ) + _convert_input(x, y, z)
-
-        if model_copy.fit_deriv is None or estimate_jacobian:
+        if model.fit_deriv is None or estimate_jacobian:
             dfunc = '2-point'
         else:
             def _dfunc(params, model, weights, x, y, z=None):
-                if model_copy.col_fit_deriv:
+                if model.col_fit_deriv:
                     return np.transpose(self._wrap_deriv(params, model, weights, x, y, z))
                 else:
                     return self._wrap_deriv(params, model, weights, x, y, z)
 
             dfunc = _dfunc
 
-        init_values, _, bounds = _model_to_fit_params(model_copy)
+        init_values, _, bounds = _model_to_fit_params(model)
 
         if self._check_bounds:
             bounds = (-np.inf, np.inf)
@@ -1371,14 +1333,13 @@ class TRFLSQFitter(_NonLinearLSQFitter):
         VT = VT[:s.size]
         cov_x = np.dot(VT.T / s**2, VT)
 
-        _fitter_to_model_params(model_copy, self.fit_info.x, False)
+        _fitter_to_model_params(model, self.fit_info.x, False)
         if not self.fit_info.success:
             warnings.warn("The fit may be unsuccessful; check: \n"
                           f"    {self.fit_info.message}",
                           AstropyUserWarning)
 
-        self._compute_param_cov(model_copy, y, init_values, cov_x, self.fit_info.x, farg)
-        return model_copy
+        return init_values, self.fit_info.x, cov_x
 
 
 class SLSQPLSQFitter(Fitter):
