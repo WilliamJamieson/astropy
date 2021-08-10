@@ -341,6 +341,9 @@ class TestSpline:
         spl = Spline()
 
         # test get value
+        with pytest.raises(NotImplementedError):
+            spl.spline
+
         with mk.patch.object(_Spline, '_get_spline', autospec=True) as mkGet:
             assert spl.spline == mkGet.return_value
             assert mkGet.call_args_list == [mk.call(spl)]
@@ -1237,6 +1240,21 @@ class TestSpline2D:
         assert spl.knots == tuple(bspline.get_knots())
         assert (spl.coeffs == bspline.get_coeffs()).all()
         assert spl.degree == tuple(bspline.degrees)
+
+        # Bad tck tuple lengths
+        spl.reset()
+        for idx in range(1, 11):
+            if idx in [3, 5]:
+                continue
+            print(idx)
+            with pytest.raises(ValueError) as err:
+                spl.tck = tuple(range(idx))
+            assert str(err.value) == \
+                'tck must be of length 3 or 5'
+            with pytest.raises(ValueError) as err:
+                spl.tck = list(range(idx))
+            assert str(err.value) == \
+                'tck must be of length 3 or 5'
 
         spl.reset()
         with pytest.raises(NotImplementedError):
