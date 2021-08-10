@@ -340,16 +340,9 @@ class TestSpline:
         spl = Spline()
 
         # test get value
-        with mk.patch.object(_Spline, '_has_tck', new_callable=mk.PropertyMock,
-                             side_effect=[True, False]) as mkHas:
-            with pytest.raises(NotImplementedError):
-                spl.spline
-            assert mkHas.call_args_list == [mk.call()]
-
-            mkHas.reset_mock()
-            with pytest.raises(RuntimeError):
-                spl.spline
-            assert mkHas.call_args_list == [mk.call()]
+        with mk.patch.object(_Spline, '_get_spline', autospec=True) as mkGet:
+            assert spl.spline == mkGet.return_value
+            assert mkGet.call_args_list == [mk.call(spl)]
 
         # test set value
         spline = mk.MagicMock()
@@ -757,6 +750,10 @@ class TestSpline1D:
                 spl(self.xs, nu=2)
             assert mkEval.call_args_list == []
             assert spl._nu == 1
+
+    def test_unfit_spline(self):
+        spl = Spline1D()
+        assert (0 == spl(self.xs)).all()
 
     def test_derivative(self):
         spl = Spline1D()
@@ -1241,6 +1238,10 @@ class TestSpline2D:
             assert mkEval.call_args_list == []
             assert spl._dx is None
             assert spl._dy == 1
+
+    def test_unfit_spline(self):
+        spl = Spline2D()
+        assert (0 == spl(self.xs, self.ys)).all()
 
     def test_bbox(self):
         spl = Spline2D()
