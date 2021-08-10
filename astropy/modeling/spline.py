@@ -136,10 +136,7 @@ class _Spline(abc.ABC):
 
     @property
     def spline(self):
-        if self._has_tck:
-            return self._get_spline()
-        else:
-            raise RuntimeError('tck needs to be defined!')
+        return self._get_spline()
 
     @spline.setter
     def spline(self, value):
@@ -250,7 +247,10 @@ class Spline1D(Fittable1DModel, _Spline):
     def _get_spline(self):
         from scipy.interpolate import BSpline
 
-        return BSpline(*self.tck)
+        if self._has_tck:
+            return BSpline(*self.tck)
+        else:
+            return BSpline([0, 1, 2, 3], [0, 0], 1)
 
     def evaluate(self, x, **kwargs):
         """
@@ -269,7 +269,7 @@ class Spline1D(Fittable1DModel, _Spline):
         # Hack to allow an optional model argument
         kwargs = self._get_optional_inputs(**kwargs)
 
-        if 'nu' in kwargs:
+        if 'nu' in kwargs and self._has_tck:
             if kwargs['nu'] > self.degree + 1:
                 raise RuntimeError(f'Cannot evaluate a derivative of order higher than {self.degree + 1}')
 
@@ -467,7 +467,10 @@ class Spline2D(Fittable2DModel, _Spline):
     def _get_spline(self):
         from scipy.interpolate import BivariateSpline
 
-        return BivariateSpline._from_tck(self.tck)
+        if self._has_tck:
+            return BivariateSpline._from_tck(self.tck)
+        else:
+            return BivariateSpline._from_tck([[0, 1, 2, 3], [0, 1, 2, 3], [0, 0, 0, 0], [1], [1]])
 
     def evaluate(self, x, y, **kwargs):
         """
@@ -486,12 +489,13 @@ class Spline2D(Fittable2DModel, _Spline):
         # Hack to allow an optional model argument
         kwargs = self._get_optional_inputs(**kwargs)
 
-        if 'dx' in kwargs:
-            if kwargs['dx'] > self.degree[0] - 1:
-                raise RuntimeError(f'Cannot evaluate a derivative of order higher than {self.degree[0] - 1}')
-        if 'dy' in kwargs:
-            if kwargs['dy'] > self.degree[1] - 1:
-                raise RuntimeError(f'Cannot evaluate a derivative of order higher than {self.degree[1] - 1}')
+        if self._has_tck:
+            if 'dx' in kwargs:
+                if kwargs['dx'] > self.degree[0] - 1:
+                    raise RuntimeError(f'Cannot evaluate a derivative of order higher than {self.degree[0] - 1}')
+            if 'dy' in kwargs:
+                if kwargs['dy'] > self.degree[1] - 1:
+                    raise RuntimeError(f'Cannot evaluate a derivative of order higher than {self.degree[1] - 1}')
 
         return self.spline(x, y, **kwargs)
 
