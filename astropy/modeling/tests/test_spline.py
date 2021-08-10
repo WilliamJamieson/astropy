@@ -21,6 +21,7 @@ from astropy.modeling.spline import (_Spline, Spline1D, Spline2D,)
 from astropy.modeling.fitting import SplineFitter
 
 npts = 50
+nknots = 10
 np.random.seed(42)
 test_w = np.random.rand(npts)
 test_t = [-1, 0, 1]
@@ -485,6 +486,17 @@ fitting_tests_1D = [
     (None,   1, npts, test_t),
 ]
 
+lsq_variables_1D = ('w', 'k')
+lsq_tests_1D = [
+    (None,   1),
+    (None,   2),
+    (None,   3),
+    (None,   4),
+    (None,   5),
+    (test_w, 3),
+    (test_w, 1),
+]
+
 
 @pytest.mark.skipif('not HAS_SCIPY')
 class TestSpline1D:
@@ -506,6 +518,8 @@ class TestSpline1D:
         self.npts_out = 1000
         self.xs = np.linspace(-3, 3, self.npts_out)
 
+        self.t = np.linspace(-3, 3, nknots)[1:-1]
+
     def generate_spline(self, w=None, bbox=[None]*2, k=None, s=None, t=None):
         if k is None:
             k = 3
@@ -514,6 +528,16 @@ class TestSpline1D:
 
         tck, fp, ier, msg = splrep(self.x, self.y, w=w, xb=bbox[0], xe=bbox[1],
                                    k=k, s=s, t=t, full_output=1)
+
+        return BSpline(*tck), fp, ier, msg
+
+    def generate_lsq_spline(self, w=None, k=None):
+        if k is None:
+            k = 3
+
+        from scipy.interpolate import splrep, BSpline
+
+        tck, fp, ier, msg = splrep(self.x, self.y, k=k, t=self.t, w=w, full_output=1)
 
         return BSpline(*tck), fp, ier, msg
 
@@ -603,6 +627,23 @@ class TestSpline1D:
         spl.bounding_box = bbox
         self.run_fit_check(spl, w=w, k=k, s=s, t=t, bbox=bbox)
 
+    @pytest.mark.parametrize(lsq_variables_1D, lsq_tests_1D)
+    def test_fit_spline_lsq(self, w, k):
+        spl = Spline1D()
+        truth, fp, ier, msg = self.generate_lsq_spline(w=w, k=k)
+
+        spl.fit_spline(self.x, self.y, t=self.t, w=w, k=k)
+        self.check_fit(spl, truth, k=k)
+
+        spl.reset()
+        spl.fit_spline(self.x.tolist(), self.y.tolist(), t=self.t, w=w, k=k)
+        self.check_fit(spl, truth, k=k)
+
+        spl.reset()
+        self.check_fit_spline(spl, self.x, self.y, fp, ier, msg,
+                              w=w, k=k, t=self.t)
+        self.check_fit(spl, truth, k=k)
+
     @pytest.mark.parametrize(fitting_variables_1D, fitting_tests_1D)
     def test_SplineFitter(self, w, k, s, t):
         fitter = SplineFitter()
@@ -632,6 +673,26 @@ class TestSpline1D:
         with pytest.raises(ModelDefinitionError,
                            match=r"Only spline models are compatible with this fitter"):
             fitter(mk.MagicMock(), self.x, self.y, w=w, k=k, s=s, t=t)
+
+    @pytest.mark.parametrize(lsq_variables_1D, lsq_tests_1D)
+    def test_SplineFitter_lsq(self, w, k):
+        fitter = SplineFitter()
+        spl = Spline1D()
+        truth, fp, ier, msg = self.generate_lsq_spline(w=w, k=k)
+
+        fit = fitter(spl, self.x, self.y, t=self.t, k=k, w=w)
+        assert id(fit) != id(spl)
+        self.check_fit(fit, truth, k=k)
+
+        fit = fitter(spl, self.x.tolist(), self.y.tolist(), t=self.t, k=k, w=w)
+        assert id(fit) != id(spl)
+        self.check_fit(fit, truth, k=k)
+
+        fitter = SplineFitter()
+        fit = self.check_fitter(fitter, spl, fp, ier, msg,
+                                w=w, k=k, t=self.t)
+        assert id(fit) != id(spl)
+        self.check_fit(fit, truth, k=k)
 
     def test___init__(self):
         # check  defaults
@@ -870,6 +931,25 @@ fitting_tests_2D = [
     (None,   1, 1, None, None,   test_t),
 ]
 
+lsq_variables_2D = ('w', 'kx', 'ky')
+lsq_tests_2D = [
+    (None,   1, 3),
+    (None,   2, 3),
+    (None,   4, 3),
+    (None,   5, 3),
+    (None,   3, 1),
+    (None,   3, 2),
+    (None,   3, 4),
+    (None,   3, 5),
+    (None,   1, 1),
+    (None,   2, 2),
+    (None,   3, 3),
+    (None,   4, 4),
+    (None,   5, 5),
+    (test_w, 3, 3),
+    (test_w, 1, 1),
+]
+
 
 @pytest.mark.skipif('not HAS_SCIPY')
 class TestSpline2D:
@@ -886,6 +966,9 @@ class TestSpline2D:
         self.xs = np.linspace(-3, 3, self.npts_out)
         self.ys = np.linspace(-3, 3, self.npts_out)
 
+        self.tx = np.linspace(-3, 3, nknots)[1:-1]
+        self.ty = np.linspace(-3, 3, nknots)[1:-1]
+
     def generate_spline(self, w=None, bbox=[None]*4, kx=None, ky=None,
                         s=None, tx=None, ty=None):
         if kx is None:
@@ -898,6 +981,21 @@ class TestSpline2D:
         tck, fp, ier, msg = bisplrep(self.x, self.y, self.z, w=w,
                                      xb=bbox[0], xe=bbox[1], yb=bbox[2], ye=bbox[3],
                                      kx=kx, ky=ky, s=s, tx=tx, ty=ty,
+                                     full_output=1)
+
+        return BivariateSpline._from_tck(tck), fp, ier, msg
+
+    def generate_lsq_spline(self, w=None, bbox=[None]*4, kx=None, ky=None):
+        if kx is None:
+            kx = 3
+        if ky is None:
+            ky = 3
+
+        from scipy.interpolate import bisplrep, BivariateSpline
+
+        tck, fp, ier, msg = bisplrep(self.x, self.y, self.z, w=w,
+                                     xb=bbox[0], xe=bbox[1], yb=bbox[2], ye=bbox[3],
+                                     kx=kx, ky=ky, tx=self.tx, ty=self.ty,
                                      full_output=1)
 
         return BivariateSpline._from_tck(tck), fp, ier, msg
@@ -1004,6 +1102,19 @@ class TestSpline2D:
         if check:
             self.check_fit(spl, truth, kx=kx, ky=ky)
 
+    @pytest.mark.parametrize(lsq_variables_2D, lsq_tests_2D)
+    def test_fit_spline_lsq(self, w, kx, ky):
+        spl = Spline2D()
+        truth, fp, ier, msg = self.generate_lsq_spline(w=w, kx=kx, ky=ky)
+
+        spl.fit_spline(self.x, self.y, self.z, tx=self.tx, ty=self.ty,
+                       w=w, kx=kx, ky=ky)
+        self.check_fit(spl, truth, kx=kx, ky=ky)
+
+        spl.reset()
+        self.check_fit_spline(spl, fp, ier, msg, w=w, kx=kx, ky=ky)
+        self.check_fit(spl, truth, kx=kx, ky=ky)
+
     @pytest.mark.parametrize(fitting_variables_2D, fitting_tests_2D)
     def test_SplineFitter(self, w, kx, ky, s, tx, ty):
         fitter = SplineFitter()
@@ -1049,6 +1160,27 @@ class TestSpline2D:
                            match=r"Only spline models are compatible with this fitter"):
             fitter(mk.MagicMock(), self.x, self.y, self.z,
                    w=w, k=(kx, ky), s=s, t=(tx, ty))
+
+    @pytest.mark.parametrize(lsq_variables_2D, lsq_tests_2D)
+    def test_SplineFitter_lsq(self, w, kx, ky):
+        fitter = SplineFitter()
+        spl = Spline2D()
+        truth, fp, ier, msg = self.generate_lsq_spline(w=w, kx=kx, ky=ky)
+
+        fit = fitter(spl, self.x, self.y, self.z, t=(self.tx, self.ty), w=w, k=(kx, ky))
+        assert id(fit) != id(spl)
+        self.check_fit(fit, truth, kx=kx, ky=ky)
+
+        fit = fitter(spl, self.x.tolist(), self.y.tolist(), self.z.tolist(),
+                     t=(self.tx, self.ty), w=w, k=(kx, ky))
+        assert id(fit) != id(spl)
+        self.check_fit(fit, truth, kx=kx, ky=ky)
+
+        fitter = SplineFitter()
+        _, fit = self.check_fitter(fitter, spl, fp, ier, msg, w=w, kx=kx, ky=ky,
+                                   tx=self.tx, ty=self.ty)
+        assert id(fit) != id(spl)
+        self.check_fit(fit, truth, kx=kx, ky=ky)
 
     def test___init__(self):
         # check  defaults
