@@ -577,8 +577,18 @@ class TestSpline1D:
         self.check_fit(spl, truth, k=k)
 
         spl.reset()
+        self.check_fit_spline(spl, self.x.tolist(), self.y.tolist(),
+                              fp, ier, msg, w=w, k=k, s=s, t=t)
+        self.check_fit(spl, truth, k=k)
+
+        spl.reset()
         self.check_fit_spline(spl, self.x_s, self.y_s, fp, ier, msg,
                               w=w, k=k, s=s, t=t)
+        self.check_fit(spl, truth, k=k)
+
+        spl.reset()
+        self.check_fit_spline(spl, self.x_s.tolist(), self.y_s.tolist(),
+                              fp, ier, msg, w=w, k=k, s=s, t=t)
         self.check_fit(spl, truth, k=k)
 
     @pytest.mark.parametrize(fitting_variables_1D, fitting_tests_1D)
@@ -816,11 +826,17 @@ class TestSpline1D:
         assert not (self.x == self.x_s).all()
         assert not (self.y == self.y_s).all()
 
+        # No sort
         x_n, y_n = spline._sort_xy(self.x_s, self.y_s, False)
         assert (x_n == self.x_s).all()
         assert (y_n == self.y_s).all()
 
+        # Sort
         x_n, y_n = spline._sort_xy(self.x_s, self.y_s)
+        assert (x_n == self.x).all()
+        assert (y_n == self.y).all()
+
+        x_n, y_n = spline._sort_xy(self.x_s.tolist(), self.y_s.tolist())
         assert (x_n == self.x).all()
         assert (y_n == self.y).all()
 

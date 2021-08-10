@@ -339,6 +339,8 @@ class Spline1D(Fittable1DModel, _Spline):
     @staticmethod
     def _sort_xy(x, y, sort=True):
         if sort:
+            x = np.array(x)
+            y = np.array(y)
             arg_sort = np.argsort(x)
             return x[arg_sort], y[arg_sort]
         else:
@@ -393,7 +395,7 @@ class Spline1D(Fittable1DModel, _Spline):
 
         x, y = self._sort_xy(x, y)
 
-        from scipy.interpolate import (splrep, BSpline)
+        from scipy.interpolate import splrep
 
         self.tck, fp, ier, msg = splrep(x, y, w=w, xb=xb, xe=xe, k=k, s=s, t=t,
                                         full_output=1)
