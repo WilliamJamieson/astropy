@@ -2770,7 +2770,7 @@ class Logarithmic1D(Fittable1DModel):
 
     @tau.validator
     def tau(self, val):
-        if val == 0:
+        if np.all(val == 0):
             raise ValueError("0 is not an allowed value for tau")
 
     @property
@@ -2820,7 +2820,7 @@ class Exponential1D(Fittable1DModel):
     @tau.validator
     def tau(self, val):
         ''' tau cannot be 0'''
-        if val == 0:
+        if np.all(val == 0):
             raise ValueError("0 is not an allowed value for tau")
 
     @property
