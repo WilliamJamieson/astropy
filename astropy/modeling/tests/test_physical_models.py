@@ -5,7 +5,7 @@ import pytest
 import numpy as np
 
 from astropy.modeling.physical_models import BlackBody, NFW
-from astropy.modeling.fitting import LevMarLSQFitter
+from astropy.modeling.fitting import LevMarLSQFitter, TRFLSQFitter
 
 from astropy.tests.helper import assert_quantity_allclose
 from astropy import units as u
@@ -15,6 +15,9 @@ from astropy.utils.compat.optional_deps import HAS_SCIPY  # noqa
 
 
 __doctest_skip__ = ["*"]
+
+
+fitters = [LevMarLSQFitter, TRFLSQFitter]
 
 
 # BlackBody tests
@@ -57,9 +60,12 @@ def test_blackbody_return_units():
 
 
 @pytest.mark.skipif("not HAS_SCIPY")
-def test_blackbody_fit():
-
-    fitter = LevMarLSQFitter()
+@pytest.mark.parametrize("fitter", fitters)
+def test_blackbody_fit(fitter):
+    if fitter == TRFLSQFitter:
+        pytest.xfail("TRFLSQFitter seems to be broken for this test.")
+    else:
+        fitter = fitter()
 
     b = BlackBody(3000 * u.K, scale=5e-17 * u.Jy / u.sr)
 
@@ -280,7 +286,8 @@ def test_NFW_evaluate(mass):
 
 
 @pytest.mark.skipif("not HAS_SCIPY")
-def test_NFW_fit():
+@pytest.mark.parametrize('fitter_class', fitters)
+def test_NFW_fit(fitter_class):
     """Test linear fitting of NFW model."""
     # Fixed parameters
     redshift = 0.63
@@ -298,7 +305,7 @@ def test_NFW_fit():
                           7.54669701e+04, 2.56319769e+04, 6.21976562e+03, 3.96522424e+02,
                           7.39336808e+01]) * (u.solMass / u.kpc ** 3)
 
-    fitter = LevMarLSQFitter()
+    fitter = fitter_class()
 
     n200c = NFW(mass=1.8E15 * u.M_sun, concentration=7.0, redshift=redshift, cosmo=cosmo,
                 massfactor=massfactor)
@@ -317,7 +324,7 @@ def test_NFW_fit():
                           7.11559560e+04, 2.45737796e+04, 6.05459585e+03, 3.92183991e+02,
                           7.34674416e+01]) * (u.solMass / u.kpc ** 3)
 
-    fitter = LevMarLSQFitter()
+    fitter = fitter_class()
 
     n200m = NFW(mass=1.8E15 * u.M_sun, concentration=7.0, redshift=redshift, cosmo=cosmo,
                 massfactor=massfactor)
@@ -336,7 +343,7 @@ def test_NFW_fit():
                           7.21856397e+04, 2.48289464e+04, 6.09477095e+03, 3.93248818e+02,
                           7.35821787e+01]) * (u.solMass / u.kpc ** 3)
 
-    fitter = LevMarLSQFitter()
+    fitter = fitter_class()
 
     nvir = NFW(mass=1.8E15 * u.M_sun, concentration=7.0, redshift=redshift, cosmo=cosmo,
                massfactor=massfactor)
