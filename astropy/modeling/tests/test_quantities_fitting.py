@@ -21,6 +21,8 @@ from astropy.utils.compat.optional_deps import HAS_SCIPY  # noqa
 # and fitting should work without units, but if one has units, the other should
 # have units too, and the resulting fitted parameters will also have units.
 
+fitters = [fitting.LevMarLSQFitter, fitting.TRFLSQFitter]
+
 
 def _fake_gaussian_data():
 
@@ -84,13 +86,14 @@ def models_with_custom_names():
 
 
 @pytest.mark.skipif('not HAS_SCIPY')
-def test_fitting_simple():
+@pytest.mark.parametrize('fitter', fitters)
+def test_fitting_simple(fitter):
 
     x, y = _fake_gaussian_data()
 
     # Fit the data using a Gaussian with units
     g_init = models.Gaussian1D()
-    fit_g = fitting.LevMarLSQFitter()
+    fit_g = fitter()
     g = fit_g(g_init, x, y)
 
     # TODO: update actual numerical results once implemented, but these should
@@ -101,7 +104,8 @@ def test_fitting_simple():
 
 
 @pytest.mark.skipif('not HAS_SCIPY')
-def test_fitting_with_initial_values():
+@pytest.mark.parametrize('fitter', fitters)
+def test_fitting_with_initial_values(fitter):
 
     x, y = _fake_gaussian_data()
 
@@ -109,7 +113,7 @@ def test_fitting_with_initial_values():
     g_init = models.Gaussian1D(amplitude=1. * u.mJy,
                                mean=3 * u.cm,
                                stddev=2 * u.mm)
-    fit_g = fitting.LevMarLSQFitter()
+    fit_g = fitter()
     g = fit_g(g_init, x, y)
 
     # TODO: update actual numerical results once implemented, but these should
@@ -120,7 +124,8 @@ def test_fitting_with_initial_values():
 
 
 @pytest.mark.skipif('not HAS_SCIPY')
-def test_fitting_missing_data_units():
+@pytest.mark.parametrize('fitter', fitters)
+def test_fitting_missing_data_units(fitter):
     """
     Raise an error if the model has units but the data doesn't
     """
@@ -135,7 +140,7 @@ def test_fitting_missing_data_units():
     g_init = UnorderedGaussian1D(amplitude=1. * u.mJy,
                                  mean=3 * u.cm,
                                  stddev=2 * u.mm)
-    fit_g = fitting.LevMarLSQFitter()
+    fit_g = fitter()
 
     # We define flux unit so that conversion fails at wavelength unit.
     # This is because the order of parameter unit conversion seems to
@@ -153,7 +158,8 @@ def test_fitting_missing_data_units():
 
 
 @pytest.mark.skipif('not HAS_SCIPY')
-def test_fitting_missing_model_units():
+@pytest.mark.parametrize('fitter', fitters)
+def test_fitting_missing_model_units(fitter):
     """
     Proceed if the data has units but the model doesn't
     """
@@ -161,7 +167,7 @@ def test_fitting_missing_model_units():
     x, y = _fake_gaussian_data()
 
     g_init = models.Gaussian1D(amplitude=1., mean=3, stddev=2)
-    fit_g = fitting.LevMarLSQFitter()
+    fit_g = fitter()
     g = fit_g(g_init, x, y)
 
     assert_quantity_allclose(g.amplitude, 3 * u.Jy, rtol=0.05)
@@ -169,7 +175,7 @@ def test_fitting_missing_model_units():
     assert_quantity_allclose(g.stddev, 0.8 * u.m, rtol=0.05)
 
     g_init = models.Gaussian1D(amplitude=1., mean=3 * u.m, stddev=2 * u.m)
-    fit_g = fitting.LevMarLSQFitter()
+    fit_g = fitter()
     g = fit_g(g_init, x, y)
 
     assert_quantity_allclose(g.amplitude, 3 * u.Jy, rtol=0.05)
@@ -178,7 +184,8 @@ def test_fitting_missing_model_units():
 
 
 @pytest.mark.skipif('not HAS_SCIPY')
-def test_fitting_incompatible_units():
+@pytest.mark.parametrize('fitter', fitters)
+def test_fitting_incompatible_units(fitter):
     """
     Raise an error if the data and model have incompatible units
     """
@@ -186,7 +193,7 @@ def test_fitting_incompatible_units():
     g_init = models.Gaussian1D(amplitude=1. * u.Jy,
                                mean=3 * u.m,
                                stddev=2 * u.cm)
-    fit_g = fitting.LevMarLSQFitter()
+    fit_g = fitter()
 
     with pytest.raises(UnitsError) as exc:
         fit_g(g_init, [1, 2, 3] * u.Hz, [4, 5, 6] * u.Jy)
@@ -196,12 +203,13 @@ def test_fitting_incompatible_units():
 @pytest.mark.skipif('not HAS_SCIPY')
 @pytest.mark.filterwarnings(r'ignore:The fit may be unsuccessful.*')
 @pytest.mark.parametrize('model', compound_models_no_units)
-def test_compound_without_units(model):
+@pytest.mark.parametrize('fitter', fitters)
+def test_compound_without_units(model, fitter):
     x = np.linspace(-5, 5, 10) * u.Angstrom
     with NumpyRNGContext(12345):
         y = np.random.sample(10)
 
-    fitter = fitting.LevMarLSQFitter()
+    fitter = fitter()
     res_fit = fitter(model, x, y * u.Hz)
     for param_name in res_fit.param_names:
         print(getattr(res_fit, param_name))
@@ -218,11 +226,12 @@ def test_compound_without_units(model):
 # FIXME: See https://github.com/astropy/astropy/issues/10675
 # @pytest.mark.skipif('not HAS_SCIPY')
 @pytest.mark.skip(reason='Flaky and ill-conditioned')
-def test_compound_fitting_with_units():
+@pytest.mark.parametrize('fitter', fitters)
+def test_compound_fitting_with_units(fitter):
     x = np.linspace(-5, 5, 15) * u.Angstrom
     y = np.linspace(-5, 5, 15) * u.Angstrom
 
-    fitter = fitting.LevMarLSQFitter()
+    fitter = fitter()
     m = models.Gaussian2D(10*u.Hz,
                           3*u.Angstrom, 4*u.Angstrom,
                           1*u.Angstrom, 2*u.Angstrom)
@@ -256,12 +265,13 @@ def test_compound_fitting_with_units():
 @pytest.mark.skipif('not HAS_SCIPY')
 @pytest.mark.filterwarnings(r'ignore:Model is linear in parameters*')
 @pytest.mark.parametrize('model', models_with_custom_names())
-def test_fitting_custom_names(model):
+@pytest.mark.parametrize('fitter', fitters)
+def test_fitting_custom_names(model, fitter):
     """ Tests fitting of models with custom inputs and outsputs names."""
 
     x = np.linspace(0, 10, 100) * u.s
     y = model(x)
-    fitter = fitting.LevMarLSQFitter()
+    fitter = fitter()
     new_model = fitter(model, x, y)
     for param_name in model.param_names:
         assert_quantity_allclose(getattr(new_model, param_name).quantity,

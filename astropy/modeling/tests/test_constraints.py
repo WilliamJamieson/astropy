@@ -16,6 +16,9 @@ from astropy.utils.exceptions import AstropyUserWarning
 from astropy.utils.compat.optional_deps import HAS_SCIPY  # noqa
 
 
+fitters = [fitting.LevMarLSQFitter, fitting.TRFLSQFitter]
+
+
 class TestNonLinearConstraints:
 
     def setup_class(self):
@@ -30,21 +33,23 @@ class TestNonLinearConstraints:
         self.ny2 = self.y2 + 2 * self.n
 
     @pytest.mark.skipif('not HAS_SCIPY')
-    def test_fixed_par(self):
+    @pytest.mark.parametrize('fitter', fitters)
+    def test_fixed_par(self, fitter):
         g1 = models.Gaussian1D(10, mean=14.9, stddev=.3,
                                fixed={'amplitude': True})
-        fitter = fitting.LevMarLSQFitter()
+        fitter = fitter()
         model = fitter(g1, self.x, self.ny1)
         assert model.amplitude.value == 10
 
     @pytest.mark.skipif('not HAS_SCIPY')
-    def test_tied_par(self):
+    @pytest.mark.parametrize("fitter", fitters)
+    def test_tied_par(self, fitter):
 
         def tied(model):
             mean = 50 * model.stddev
             return mean
         g1 = models.Gaussian1D(10, mean=14.9, stddev=.3, tied={'mean': tied})
-        fitter = fitting.LevMarLSQFitter()
+        fitter = fitter()
         model = fitter(g1, self.x, self.ny1)
         assert_allclose(model.mean.value, 50 * model.stddev,
                         rtol=10 ** (-5))
@@ -82,7 +87,8 @@ class TestNonLinearConstraints:
         assert_allclose(g1.amplitude.value, g2.amplitude.value)
 
     @pytest.mark.skipif('not HAS_SCIPY')
-    def test_no_constraints(self):
+    @pytest.mark.parametrize("fitter", fitters)
+    def test_no_constraints(self, fitter):
         from scipy import optimize
 
         g1 = models.Gaussian1D(9.9, 14.5, stddev=.3)
@@ -98,7 +104,7 @@ class TestNonLinearConstraints:
         n = np.random.randn(100)
         ny = y + n
         fitpar, s = optimize.leastsq(errf, p0, args=(self.x, ny))
-        fitter = fitting.LevMarLSQFitter()
+        fitter = fitter()
         model = fitter(g1, self.x, ny)
         assert_allclose(model.parameters, fitpar, rtol=5 * 10 ** (-3))
 
@@ -125,13 +131,14 @@ class TestBounds:
                          416.0, 439.0, 472.0, 472.0, 492.0, 523.0, 569.0, 487.0, 441.0, 428.0])
         self.data = data.reshape(11, 11)
 
-    def test_bounds_lsq(self):
+    @pytest.mark.parametrize("fitter", fitters)
+    def test_bounds_lsq(self, fitter):
         guess_slope = 1.1
         guess_intercept = 0.0
         bounds = {'slope': (-1.5, 5.0), 'intercept': (-1.0, 1.0)}
         line_model = models.Linear1D(guess_slope, guess_intercept,
                                      bounds=bounds)
-        fitter = fitting.LevMarLSQFitter()
+        fitter = fitter()
         with pytest.warns(AstropyUserWarning,
                           match=r'Model is linear in parameters'):
             model = fitter(line_model, self.x, self.y)
@@ -159,7 +166,8 @@ class TestBounds:
         assert intercept + 10 ** -5 >= bounds['intercept'][0]
         assert intercept - 10 ** -5 <= bounds['intercept'][1]
 
-    def test_bounds_gauss2d_lsq(self):
+    @pytest.mark.parametrize("fitter", fitters)
+    def test_bounds_gauss2d_lsq(self, fitter):
         X, Y = np.meshgrid(np.arange(11), np.arange(11))
         bounds = {"x_mean": [0., 11.],
                   "y_mean": [0., 11.],
@@ -168,9 +176,12 @@ class TestBounds:
         gauss = models.Gaussian2D(amplitude=10., x_mean=5., y_mean=5.,
                                   x_stddev=4., y_stddev=4., theta=0.5,
                                   bounds=bounds)
-        gauss_fit = fitting.LevMarLSQFitter()
-        with pytest.warns(AstropyUserWarning,
-                          match='The fit may be unsuccessful'):
+        gauss_fit = fitter()
+        if isinstance(gauss_fit, fitting.LevMarLSQFitter):
+            with pytest.warns(AstropyUserWarning,
+                              match='The fit may be unsuccessful'):
+                model = gauss_fit(gauss, X, Y, self.data)
+        else:
             model = gauss_fit(gauss, X, Y, self.data)
         x_mean = model.x_mean.value
         y_mean = model.y_mean.value
@@ -359,7 +370,8 @@ def test_default_constraints():
 
 
 @pytest.mark.skipif('not HAS_SCIPY')
-def test_fit_with_fixed_and_bound_constraints():
+@pytest.mark.parametrize('fitter', fitters)
+def test_fit_with_fixed_and_bound_constraints(fitter):
     """
     Regression test for https://github.com/astropy/astropy/issues/2235
 
@@ -373,7 +385,7 @@ def test_fit_with_fixed_and_bound_constraints():
     x = np.linspace(0, 10, 10)
     y = np.exp(-x ** 2 / 2)
 
-    f = fitting.LevMarLSQFitter()
+    f = fitter()
     fitted_1 = f(m, x, y)
     assert fitted_1.mean >= 4
     assert fitted_1.mean <= 5
@@ -388,7 +400,8 @@ def test_fit_with_fixed_and_bound_constraints():
 
 
 @pytest.mark.skipif('not HAS_SCIPY')
-def test_fit_with_bound_constraints_estimate_jacobian():
+@pytest.mark.parametrize('fitter', fitters)
+def test_fit_with_bound_constraints_estimate_jacobian(fitter):
     """
     Regression test for https://github.com/astropy/astropy/issues/2400
 
@@ -410,7 +423,7 @@ def test_fit_with_bound_constraints_estimate_jacobian():
     y = m_real(x)
 
     m = MyModel()
-    f = fitting.LevMarLSQFitter()
+    f = fitter()
     fitted_1 = f(m, x, y)
 
     # This fit should be trivial so even without constraints on the bounds it
@@ -420,19 +433,21 @@ def test_fit_with_bound_constraints_estimate_jacobian():
 
     m2 = MyModel()
     m2.a.bounds = (-2, 2)
-    f2 = fitting.LevMarLSQFitter()
+    f2 = fitter()
     _ = f2(m2, x, y)
     assert np.allclose(fitted_1.a, 1.5)
     assert np.allclose(fitted_1.b, -3)
 
     # Check that the estimated Jacobian was computed (it doesn't matter what
     # the values are so long as they're not all zero.
-    assert np.any(f2.fit_info['fjac'] != 0)
+    if fitter == fitting.LevMarLSQFitter:
+        assert np.any(f2.fit_info['fjac'] != 0)
 
 
 # https://github.com/astropy/astropy/issues/6014
 @pytest.mark.skipif('not HAS_SCIPY')
-def test_gaussian2d_positive_stddev():
+@pytest.mark.parametrize('fitter', fitters)
+def test_gaussian2d_positive_stddev(fitter):
     # This is 2D Gaussian with noise to be fitted, as provided by @ysBach
     test = [
         [-54.33, 13.81, -34.55, 8.95, -143.71, -0.81, 59.25, -14.78, -204.9,
@@ -470,7 +485,10 @@ def test_gaussian2d_positive_stddev():
         [46.61, -104.11, 56.71, -90.85, -16.51, -66.45, -141.34, 0.96, 58.08,
          285.29, -61.41, -9.01, -323.38, 58.35, 80.14, -101.22, 145.65]]
     g_init = models.Gaussian2D(x_mean=8, y_mean=8)
-    fitter = fitting.LevMarLSQFitter()
+    if fitter == fitting.TRFLSQFitter:
+        pytest.xfail("TRFLSQFitter seems to be broken for this test.")
+    else:
+        fitter = fitter()
     y, x = np.mgrid[:17, :17]
     g_fit = fitter(g_init, x, y, test)
 
@@ -487,12 +505,13 @@ def test_gaussian2d_positive_stddev():
 # Issue #6403
 @pytest.mark.skipif('not HAS_SCIPY')
 @pytest.mark.filterwarnings(r'ignore:Model is linear in parameters.*')
-def test_2d_model():
+@pytest.mark.parametrize('fitter', fitters)
+def test_2d_model(fitter):
     from astropy.utils import NumpyRNGContext
 
     # 2D model with LevMarLSQFitter
     gauss2d = models.Gaussian2D(10.2, 4.3, 5, 2, 1.2, 1.4)
-    fitter = fitting.LevMarLSQFitter()
+    fitter = fitter()
     X = np.linspace(-1, 7, 200)
     Y = np.linspace(-1, 7, 200)
     x, y = np.meshgrid(X, Y)

@@ -26,7 +26,10 @@ from astropy.modeling.powerlaws import (
 
 from astropy.modeling.polynomial import Polynomial1D, Polynomial2D
 
-from astropy.modeling.fitting import LevMarLSQFitter
+from astropy.modeling.fitting import LevMarLSQFitter, TRFLSQFitter
+
+
+fitters = [LevMarLSQFitter, TRFLSQFitter]
 
 FUNC_MODELS_1D = [
 {'class': Gaussian1D,
@@ -315,7 +318,8 @@ def test_models_bounding_box(model):
 @pytest.mark.filterwarnings(r'ignore:Model is linear in parameters.*')
 @pytest.mark.filterwarnings(r'ignore:The fit may be unsuccessful.*')
 @pytest.mark.parametrize('model', MODELS)
-def test_models_fitting(model):
+@pytest.mark.parametrize('fitter', fitters)
+def test_models_fitting(model, fitter):
 
     m = model['class'](**model['parameters'])
     if len(model['evaluation'][0]) == 2:
@@ -329,7 +333,7 @@ def test_models_fitting(model):
         args = [x, y, z]
 
     # Test that the model fits even if it has units on parameters
-    fitter = LevMarLSQFitter()
+    fitter = fitter()
     m_new = fitter(m, *args)
 
     # Check that units have been put back correctly

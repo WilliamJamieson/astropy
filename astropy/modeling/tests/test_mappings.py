@@ -4,10 +4,13 @@ import pytest
 import numpy as np
 from numpy.testing import assert_allclose, assert_array_equal
 
-from astropy.modeling.fitting import LevMarLSQFitter
+from astropy.modeling.fitting import LevMarLSQFitter, TRFLSQFitter
 from astropy.modeling.models import Shift, Rotation2D, Gaussian1D, Identity, Mapping
 from astropy.utils import NumpyRNGContext
 from astropy.utils.compat.optional_deps import HAS_SCIPY  # noqa
+
+
+fitters = [LevMarLSQFitter, TRFLSQFitter]
 
 
 def test_swap_axes():
@@ -69,7 +72,8 @@ def test_identity():
 
 # https://github.com/astropy/astropy/pull/6018
 @pytest.mark.skipif('not HAS_SCIPY')
-def test_fittable_compound():
+@pytest.mark.parametrize('fitter', fitters)
+def test_fittable_compound(fitter):
     m = Identity(1) | Mapping((0, )) | Gaussian1D(1, 5, 4)
     x = np.arange(10)
     y_real = m(x)
@@ -77,7 +81,7 @@ def test_fittable_compound():
     with NumpyRNGContext(1234567):
         n = np.random.normal(0., dy, x.shape)
     y_noisy = y_real + n
-    pfit = LevMarLSQFitter()
+    pfit = fitter()
     new_model = pfit(m, x, y_noisy)
     y_fit = new_model(x)
     assert_allclose(y_fit, y_real, atol=dy)

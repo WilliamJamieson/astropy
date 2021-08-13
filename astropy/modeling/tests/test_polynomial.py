@@ -406,4 +406,4 @@ def test_2d_orthopolynomial_in_compound_model(fitter_class):
                       match='Model is linear in parameters'):
         compound_fit = fitter(compound_model, x, y, z)
 
-    assert_allclose(simple_fit(x, y), compound_fit(x, y), atol=1e-15)
+    assert_allclose(simple_fit(x, y), compound_fit(x, y), atol=1e-12)
