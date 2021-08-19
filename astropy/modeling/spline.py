@@ -6,10 +6,15 @@
 import warnings
 
 import abc
+import re
+import functools
 import numpy as np
 
 from astropy.utils.exceptions import (AstropyUserWarning,)
-from .core import (Fittable1DModel, Fittable2DModel,)
+from astropy.utils import isiterable
+from .core import (FittableModel, Fittable1DModel, Fittable2DModel,)
+
+from .parameters import Parameter
 
 
 class _Spline(abc.ABC):
@@ -191,6 +196,194 @@ class _Spline(abc.ABC):
                 optional_inputs[arg] = self.optional_inputs[arg]
 
         return optional_inputs
+
+
+def get_knot_value(value, model, index):
+    return model.t[index]
+
+def set_knot_value(value, model, index):
+    model.t[index] = value
+    return value
+
+def get_coeff_value(value, model, index):
+    return model.c[index]
+
+def set_coeff_value(value, model, index):
+    model.c[index] = value
+    return value
+
+
+class NewSpline1D(Fittable1DModel):
+    _lower_knot_names = ()
+    _upper_knot_names = ()
+    _interior_knot_names = ()
+    _coeff_names = ()
+    _n_inputs = 1
+    @property
+    def _knot_names(self):
+        return tuple(list(self._lower_knot_names) +
+                     list(self._interior_knot_names) +
+                     list(self._upper_knot_names))
+
+    @property
+    def param_names(self):
+        """
+        Coefficient names generated based on the spline's degree and
+        number of knots.
+        """
+
+        return tuple(list(self._knot_names) + list(self._coeff_names))
+
+    def __init__(self, knots=None, degree=3, bounds=None, n_models=None, model_set_axis=None,
+                 name=None, meta=None, **params):
+        self._degree = degree
+
+        self._create_initial_data(knots, bounds)
+
+        super().__init__(
+            n_models=n_models, model_set_axis=model_set_axis, name=name,
+            meta=meta, **params)
+
+        self._generate_param_names()
+        self._generate_parameters()
+
+    @property
+    def t(self):
+        return self._t
+
+    @t.setter
+    def t(self, value):
+        if len(value) == len(self._t):
+            self._t = value
+        else:
+            raise ValueError("There must be exactly as many knots as previously defined")
+
+    @property
+    def c(self):
+        return self._c
+
+    @c.setter
+    def c(self, value):
+        if len(value) == len(self._c):
+            self._c = value
+        else:
+            raise ValueError("There must be exactly as many knots as previously defined")
+
+    @property
+    def tck(self):
+        return (self._t, self._c, self._degree)
+
+    @tck.setter
+    def tck(self, value):
+        self.t = value[0]
+        self.c = value[1]
+        self.degree = value[2]
+
+    @property
+    def knots(self):
+        return [getattr(self, knot) for knot in self._knot_names]
+
+    @property
+    def coeffs(self):
+        return [getattr(self, coeff) for coeff in self._coeff_names]
+
+    @property
+    def degree(self):
+        return self._degree
+
+    @degree.setter
+    def degree(self, value):
+        if value != self._degree:
+            ValueError("The value of degree cannot be changed by tck tuple")
+
+    def _create_initial_data(self, knots, bounds):
+        if np.issubdtype(type(knots), np.integer):
+            self._user_knots = False
+            self._nknots = knots
+            self._t = np.zeros(2*(self._degree + 1) + self._nknots)
+        elif isiterable(knots):
+            self._user_knots = True
+            if bounds is None:
+                if len(knots) < 2*(self._degree + 1):
+                    raise ValueError(f"Must have at least {2*(self._degree + 1)} knots.")
+                self._t = np.array(knots)
+            else:
+                print(f"{bounds=}")
+                self.bounding_box = bounds
+                self._t = np.concatenate((
+                    [bounds[0]] * (self._degree + 1),
+                    np.array(knots),
+                    [bounds[1]] * (self._degree + 1),
+                ))
+            self._nknots = len(knots)
+        else:
+            raise ValueError(f"Knots: {knots} must be iterable or value")
+
+        self._c = np.zeros(len(self._t))
+        print(f"{len(self._t)=}")
+
+    def _generate_param_names(self):
+        self._lower_knot_names = self._generate_exterior_knot_names('lower')
+        self._upper_knot_names = self._generate_exterior_knot_names('upper')
+        self._interior_knot_names = [f"knot{idx}" for idx in range(self._nknots)]
+        self._coeff_names = self._generate_coeff_names(self._knot_names)
+
+    def _generate_parameters(self):
+        for param_name in self._knot_names:
+            self._create_parameter(param_name, get_knot_value, set_knot_value, self._t)
+
+        for param_name in self._coeff_names:
+            self._create_parameter(param_name, get_coeff_value, set_coeff_value, self._c)
+
+    @staticmethod
+    def _get_param_index(name):
+        indices = [int(s) for s in re.findall(r'\d+', name)]
+        if len(indices) != 1:
+            raise RuntimeError('There should be only one index for a knot.')
+        return indices[0]
+
+    def _create_parameter(self, name: str, get_func, set_func, default):
+        index = self._get_param_index(name)
+
+        if 'knot_lower' in name:
+            pass
+        elif 'knot_upper' in name:
+            index = -(self._degree + 1 - index)
+        elif 'knot' in name:
+            index = self._degree + 1 + index
+        else:
+            raise RuntimeError('This should be a knot')
+
+        getter = functools.partial(get_func, index=index)
+        setter = functools.partial(set_func, index=index)
+        param = Parameter(name=name, default=default[index], getter=getter, setter=setter)
+        param.model = self
+        param.value = default[index]
+
+        self.__dict__[name] = param
+
+    def _generate_exterior_knot_names(self, name: str):
+        return [f"knot_{name}{idx}" for idx in range(self._degree + 1)]
+
+    def _generate_coeff_names(self, knots: tuple):
+        return tuple([f"{knot}_coeff" for knot in knots])
+
+    def evaluate(self, *args, **kwargs):
+        pass
+
+    def interpolate_data(self, x, y, w=None, bbox=[None, None]):
+        if self._user_knots:
+            warnings.warn("User specified knots are ignored for interpolating data",
+                          AstropyUserWarning)
+            self._user_knots = False
+
+        if bbox != [None, None]:
+            self.bounding_box = bbox
+
+        from scipy.interpolate import InterpolatedUnivariateSpline
+
+        spline = InterpolatedUnivariateSpline(x, y, w=w, bbox=bbox, k=self._degree)
+        self.tck = spline._eval_args
 
 
 class Spline1D(Fittable1DModel, _Spline):
