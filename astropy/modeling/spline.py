@@ -678,24 +678,6 @@ class NewSpline1D(Fittable1DModel):
 
         self._c = np.zeros(len(self._t))
 
-    @staticmethod
-    def _get_knot_value(value, model, index):
-        return model.t[index]
-
-    @staticmethod
-    def _set_knot_value(value, model, index):
-        model.t[index] = value
-        return value
-
-    @staticmethod
-    def _get_coeff_value(value, model, index):
-        return model.c[index]
-
-    @staticmethod
-    def _set_coeff_value(value, model, index):
-        model.c[index] = value
-        return value
-
     def _generate_param_names(self):
         self._lower_knot_names = self._generate_exterior_knot_names('lower')
         self._upper_knot_names = self._generate_exterior_knot_names('upper')
@@ -704,14 +686,10 @@ class NewSpline1D(Fittable1DModel):
 
     def _generate_parameters(self):
         for param_name in self._knot_names:
-            self._create_parameter(param_name,
-                                   self._get_knot_value,
-                                   self._set_knot_value, self._t)
+            self._create_parameter(param_name, 't')
 
         for param_name in self._coeff_names:
-            self._create_parameter(param_name,
-                                   self._get_coeff_value,
-                                   self._set_coeff_value, self._c)
+            self._create_parameter(param_name, 'c')
 
     @staticmethod
     def _get_param_index(name):
@@ -720,7 +698,7 @@ class NewSpline1D(Fittable1DModel):
             raise RuntimeError('There should be only one index for a knot.')
         return indices[0]
 
-    def _create_parameter(self, name: str, get_func, set_func, default):
+    def _create_parameter(self, name: str, attr):
         index = self._get_param_index(name)
 
         if 'knot_lower' in name:
@@ -732,8 +710,16 @@ class NewSpline1D(Fittable1DModel):
         else:
             raise RuntimeError('This should be a knot')
 
-        getter = functools.partial(get_func, index=index)
-        setter = functools.partial(set_func, index=index)
+        def _getter(value, model, index, attr):
+            return getattr(model, attr)[index]
+
+        def _setter(value, model, index, attr):
+            getattr(model, attr)[index] = value
+            return value
+
+        default = getattr(self, attr)
+        getter = functools.partial(_getter, index=index, attr=attr)
+        setter = functools.partial(_setter, index=index, attr=attr)
         param = Parameter(name=name, default=default[index], getter=getter, setter=setter)
         param.model = self
         param.value = default[index]
