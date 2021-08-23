@@ -569,24 +569,6 @@ class Spline2D(Fittable2DModel, _Spline):
         return fp, ier, msg
 
 
-def get_knot_value(value, model, index):
-    return model.t[index]
-
-
-def set_knot_value(value, model, index):
-    model.t[index] = value
-    return value
-
-
-def get_coeff_value(value, model, index):
-    return model.c[index]
-
-
-def set_coeff_value(value, model, index):
-    model.c[index] = value
-    return value
-
-
 class NewSpline1D(Fittable1DModel):
     _lower_knot_names = ()
     _upper_knot_names = ()
@@ -696,6 +678,24 @@ class NewSpline1D(Fittable1DModel):
 
         self._c = np.zeros(len(self._t))
 
+    @staticmethod
+    def _get_knot_value(value, model, index):
+        return model.t[index]
+
+    @staticmethod
+    def _set_knot_value(value, model, index):
+        model.t[index] = value
+        return value
+
+    @staticmethod
+    def _get_coeff_value(value, model, index):
+        return model.c[index]
+
+    @staticmethod
+    def _set_coeff_value(value, model, index):
+        model.c[index] = value
+        return value
+
     def _generate_param_names(self):
         self._lower_knot_names = self._generate_exterior_knot_names('lower')
         self._upper_knot_names = self._generate_exterior_knot_names('upper')
@@ -704,10 +704,14 @@ class NewSpline1D(Fittable1DModel):
 
     def _generate_parameters(self):
         for param_name in self._knot_names:
-            self._create_parameter(param_name, get_knot_value, set_knot_value, self._t)
+            self._create_parameter(param_name,
+                                   self._get_knot_value,
+                                   self._set_knot_value, self._t)
 
         for param_name in self._coeff_names:
-            self._create_parameter(param_name, get_coeff_value, set_coeff_value, self._c)
+            self._create_parameter(param_name,
+                                   self._get_coeff_value,
+                                   self._set_coeff_value, self._c)
 
     @staticmethod
     def _get_param_index(name):
