@@ -915,3 +915,22 @@ class NewSpline1D(Fittable1DModel):
         spline = LSQUnivariateSpline(x, y, t, w=w, bbox=bbox, k=self._degree)
 
         self._set_spline_fit(spline)
+
+    def splrep_data(self, x, y, w=None, s=None, task=0, t=None, bbox=[None, None]):
+        if t is not None:
+            if self._user_knots:
+                warnings.warn("The current user specified knots will be "
+                              "overwritten for by knots passed into this function",
+                              AstropyUserWarning)
+        else:
+            if self._user_knots:
+                t = self.t_interior
+
+        if bbox != [None, None]:
+            self.bounding_box = bbox
+
+        from scipy.interpolate import splrep, UnivariateSpline
+        tck = splrep(x, y, w=w, xb=bbox[0], xe=bbox[1], k=self._degree, s=s, t=t, task=task)
+        spline = UnivariateSpline._from_tck(tck)
+
+        self._set_spline_fit(spline)

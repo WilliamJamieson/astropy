@@ -2161,3 +2161,88 @@ class TestNewSpline1D:
             spl.lsq_fit_data(self.x, self.y, w=w)
         assert str(err.value) ==\
             "No knots have been provided"
+
+    @pytest.mark.parametrize(new_variables_1D, new_tests_1D)
+    @pytest.mark.parametrize('s', [None, 0.01])
+    def test_splrep_data_no_knots(self, w, k, s):
+        spl = NewSpline1D(degree=k)
+        assert spl._t is None
+        assert spl._c is None
+        assert spl.degree == k
+
+        spl.splrep_data(self.x, self.y, w=w, s=s)
+        for idx in range(k + 1):
+            name = f"knot_lower{idx}"
+            self.check_parameter(spl, name, self.x[0])
+            name = f"knot_upper{idx}"
+            self.check_parameter(spl, name, self.x[-1])
+
+        from scipy.interpolate import splrep, BSpline
+        tck = splrep(self.x, self.y, w=w, k=k, s=s)
+        assert (spl.t == tck[0]).all()
+        assert (spl.c == tck[1]).all()
+        spline = BSpline(*tck)
+
+        assert (spl(self.x) == spline(self.x)).all()
+
+        assert_allclose(spl(self.x), self.y, atol=1)
+        assert_allclose(spl(self.x), self.truth, atol=1)
+
+    @pytest.mark.parametrize(new_variables_1D, new_tests_1D)
+    def test_splrep_data_with_knots(self, w, k):
+        knots = [-1, 0, 1]
+        t = np.concatenate(([self.x[0]]*(k + 1), knots, [self.x[-1]]*(k + 1)))
+        c = np.zeros(len(t))
+
+        # With knots preset
+        spl = NewSpline1D(knots=knots, degree=k, bounds=[self.x[0], self.x[-1]])
+        assert (spl.t == t).all()
+        assert (spl.c == c).all()
+        assert (spl.t_interior == knots).all()
+        assert spl.degree == k
+
+        spl.splrep_data(self.x, self.y, w=w)
+        for idx in range(k + 1):
+            name = f"knot_lower{idx}"
+            self.check_parameter(spl, name, self.x[0])
+            name = f"knot_upper{idx}"
+            self.check_parameter(spl, name, self.x[-1])
+
+        from scipy.interpolate import splrep, BSpline
+        tck = splrep(self.x, self.y, w=w, k=k, t=knots)
+        assert (spl.t == tck[0]).all()
+        assert (spl.c == tck[1]).all()
+        spline = BSpline(*tck)
+
+        assert (spl(self.x) == spline(self.x)).all()
+
+        assert_allclose(spl(self.x), self.y, atol=1)
+        assert_allclose(spl(self.x), self.truth, atol=1)
+
+        # With no knots present
+        spl = NewSpline1D(degree=k)
+        assert spl._t is None
+        assert spl._c is None
+        assert spl.degree == k
+
+        spl.splrep_data(self.x, self.y, w=w, t=knots)
+        for idx in range(k + 1):
+            name = f"knot_lower{idx}"
+            self.check_parameter(spl, name, self.x[0])
+            name = f"knot_upper{idx}"
+            self.check_parameter(spl, name, self.x[-1])
+
+        from scipy.interpolate import splrep, BSpline
+        tck = splrep(self.x, self.y, w=w, k=k, t=knots)
+        assert (spl.t == tck[0]).all()
+        assert (spl.c == tck[1]).all()
+        spline = BSpline(*tck)
+
+        assert (spl(self.x) == spline(self.x)).all()
+
+        assert_allclose(spl(self.x), self.y, atol=1)
+        assert_allclose(spl(self.x), self.truth, atol=1)
+
+        # test warning
+        with pytest.warns(AstropyUserWarning):
+            spl.splrep_data(self.x, self.y, w=w, t=knots)
