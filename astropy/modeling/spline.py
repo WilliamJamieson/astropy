@@ -882,6 +882,13 @@ class NewSpline1D(Fittable1DModel):
 
         self._set_spline_fit(spline)
 
+    @classmethod
+    def interpolate(cls, x, y, k=3, w=None, bbox=[None, None]):
+        spline = cls(degree=k)
+        spline.interpolate_data(x, y, w=w, bbox=bbox)
+
+        return spline
+
     def smoothing_fit(self, x, y, s=None, w=None, bbox=[None, None]):
         if self._user_knots:
             warnings.warn("The current user specified knots maybe ignored for interpolating data",
@@ -896,7 +903,14 @@ class NewSpline1D(Fittable1DModel):
 
         self._set_spline_fit(spline)
 
-    def lsq_fit_data(self, x, y, t=None, w=None, bbox=[None, None]):
+    @classmethod
+    def smoothing(cls, x, y, k=3, s=None, w=None, bbox=[None, None]):
+        spline = cls(degree=k)
+        spline.smoothing_fit(x, y, s=s, w=w, bbox=bbox)
+
+        return spline
+
+    def lsq_fit(self, x, y, t=None, w=None, bbox=[None, None]):
         if t is not None:
             if self._user_knots:
                 warnings.warn("The current user specified knots will be "
@@ -916,6 +930,13 @@ class NewSpline1D(Fittable1DModel):
 
         self._set_spline_fit(spline)
 
+    @classmethod
+    def lsq(cls, x, y, t, k=3, w=None, bbox=[None, None]):
+        spline = cls(degree=k)
+        spline.lsq_fit(x, y, t, w=w, bbox=bbox)
+
+        return spline
+
     def splrep_data(self, x, y, w=None, s=None, task=0, t=None, bbox=[None, None]):
         if t is not None:
             if self._user_knots:
@@ -934,3 +955,10 @@ class NewSpline1D(Fittable1DModel):
         spline = UnivariateSpline._from_tck(tck)
 
         self._set_spline_fit(spline)
+
+    @classmethod
+    def splrep(cls, x, y, k=3, w=None, s=None, task=0, t=None, bbox=[None, None]):
+        spline = cls(degree=k)
+        spline.splrep_data(x, y, w=w, s=s, task=task, t=t, bbox=bbox)
+
+        return spline

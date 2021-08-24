@@ -2093,6 +2093,35 @@ class TestNewSpline1D:
         with pytest.warns(AstropyUserWarning):
             spl.interpolate_data(self.x, self.y, w=w)
 
+    def test_interpolate(self):
+        x = mk.MagicMock()
+        y = mk.MagicMock()
+
+        # Defaults
+        with mk.patch.object(NewSpline1D, 'interpolate_data',
+                             autospec=True) as mkInterpolate:
+            spl = NewSpline1D.interpolate(x, y)
+            assert isinstance(spl, NewSpline1D)
+            assert spl._t is None
+            assert spl._c is None
+            assert spl.degree == 3
+            assert mkInterpolate.call_args_list == \
+                [mk.call(spl, x, y, w=None, bbox=[None, None])]
+
+        # No Defaults
+        k = mk.MagicMock()
+        w = mk.MagicMock()
+        bbox = mk.MagicMock()
+        with mk.patch.object(NewSpline1D, 'interpolate_data',
+                             autospec=True) as mkInterpolate:
+            spl = NewSpline1D.interpolate(x, y, k=k, w=w, bbox=bbox)
+            assert isinstance(spl, NewSpline1D)
+            assert spl._t is None
+            assert spl._c is None
+            assert spl.degree == k
+            assert mkInterpolate.call_args_list == \
+                [mk.call(spl, x, y, w=w, bbox=bbox)]
+
     @pytest.mark.parametrize(new_variables_1D, new_tests_1D)
     @pytest.mark.parametrize('s', [None, 0.01])
     def test_smoothing_data(self, w, k, s):
@@ -2118,8 +2147,38 @@ class TestNewSpline1D:
         assert_allclose(spl(self.x), self.y, atol=1)
         assert_allclose(spl(self.x), self.truth, atol=1)
 
+    def test_smoothing(self):
+        x = mk.MagicMock()
+        y = mk.MagicMock()
+
+        # Defaults
+        with mk.patch.object(NewSpline1D, 'smoothing_fit',
+                             autospec=True) as mkSmoothing:
+            spl = NewSpline1D.smoothing(x, y)
+            assert isinstance(spl, NewSpline1D)
+            assert spl._t is None
+            assert spl._c is None
+            assert spl.degree == 3
+            assert mkSmoothing.call_args_list == \
+                [mk.call(spl, x, y, s=None, w=None, bbox=[None, None])]
+
+        # No Defaults
+        k = mk.MagicMock()
+        s = mk.MagicMock()
+        w = mk.MagicMock()
+        bbox = mk.MagicMock()
+        with mk.patch.object(NewSpline1D, 'smoothing_fit',
+                             autospec=True) as mkSmoothing:
+            spl = NewSpline1D.smoothing(x, y, k=k, s=s, w=w, bbox=bbox)
+            assert isinstance(spl, NewSpline1D)
+            assert spl._t is None
+            assert spl._c is None
+            assert spl.degree == k
+            assert mkSmoothing.call_args_list == \
+                [mk.call(spl, x, y, s=s, w=w, bbox=bbox)]
+
     @pytest.mark.parametrize(new_variables_1D, new_tests_1D)
-    def test_lsq_fit_data(self, w, k):
+    def test_lsq_fit(self, w, k):
         knots = [-1, 0, 1]
         t = np.concatenate(([self.x[0]]*(k + 1), knots, [self.x[-1]]*(k + 1)))
         c = np.zeros(len(t))
@@ -2131,7 +2190,7 @@ class TestNewSpline1D:
         assert (spl.t_interior == knots).all()
         assert spl.degree == k
 
-        spl.lsq_fit_data(self.x, self.y, w=w)
+        spl.lsq_fit(self.x, self.y, w=w)
         assert len(spl.t) == len(t) == len(spl._knot_names)
         for idx in range(k + 1):
             name = f"knot_lower{idx}"
@@ -2153,14 +2212,44 @@ class TestNewSpline1D:
 
         # Pass knots via fitter function
         with pytest.warns(AstropyUserWarning):
-            spl.lsq_fit_data(self.x, self.y, knots, w=w)
+            spl.lsq_fit(self.x, self.y, knots, w=w)
 
         # Pass no knots
         spl = NewSpline1D(degree=k)
         with pytest.raises(RuntimeError) as err:
-            spl.lsq_fit_data(self.x, self.y, w=w)
+            spl.lsq_fit(self.x, self.y, w=w)
         assert str(err.value) ==\
             "No knots have been provided"
+
+    def test_lsq(self):
+        x = mk.MagicMock()
+        y = mk.MagicMock()
+        t = mk.MagicMock()
+
+        # Defaults
+        with mk.patch.object(NewSpline1D, 'lsq_fit',
+                             autospec=True) as mkLSQ:
+            spl = NewSpline1D.lsq(x, y, t)
+            assert isinstance(spl, NewSpline1D)
+            assert spl._t is None
+            assert spl._c is None
+            assert spl.degree == 3
+            assert mkLSQ.call_args_list == \
+                [mk.call(spl, x, y, t, w=None, bbox=[None, None])]
+
+        # No Defaults
+        k = mk.MagicMock()
+        w = mk.MagicMock()
+        bbox = mk.MagicMock()
+        with mk.patch.object(NewSpline1D, 'lsq_fit',
+                             autospec=True) as mkLSQ:
+            spl = NewSpline1D.lsq(x, y, t, k=k, w=w, bbox=bbox)
+            assert isinstance(spl, NewSpline1D)
+            assert spl._t is None
+            assert spl._c is None
+            assert spl.degree == k
+            assert mkLSQ.call_args_list == \
+                [mk.call(spl, x, y, t, w=w, bbox=bbox)]
 
     @pytest.mark.parametrize(new_variables_1D, new_tests_1D)
     @pytest.mark.parametrize('s', [None, 0.01])
@@ -2246,3 +2335,35 @@ class TestNewSpline1D:
         # test warning
         with pytest.warns(AstropyUserWarning):
             spl.splrep_data(self.x, self.y, w=w, t=knots)
+
+    def test_splrep(self):
+        x = mk.MagicMock()
+        y = mk.MagicMock()
+
+        # Defaults
+        with mk.patch.object(NewSpline1D, 'splrep_data',
+                             autospec=True) as mkSplrep:
+            spl = NewSpline1D.splrep(x, y)
+            assert isinstance(spl, NewSpline1D)
+            assert spl._t is None
+            assert spl._c is None
+            assert spl.degree == 3
+            assert mkSplrep.call_args_list == \
+                [mk.call(spl, x, y, w=None, s=None, task=0, t=None, bbox=[None, None])]
+
+        # No Defaults
+        k = mk.MagicMock()
+        w = mk.MagicMock()
+        s = mk.MagicMock()
+        task = mk.MagicMock()
+        t = mk.MagicMock()
+        bbox = mk.MagicMock()
+        with mk.patch.object(NewSpline1D, 'splrep_data',
+                             autospec=True) as mkSplrep:
+            spl = NewSpline1D.splrep(x, y, k=k, w=w, s=s, task=task, t=t, bbox=bbox)
+            assert isinstance(spl, NewSpline1D)
+            assert spl._t is None
+            assert spl._c is None
+            assert spl.degree == k
+            assert mkSplrep.call_args_list == \
+                [mk.call(spl, x, y, w=w, s=s, task=task, t=t, bbox=bbox)]
