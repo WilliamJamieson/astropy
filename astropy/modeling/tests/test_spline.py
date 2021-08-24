@@ -1418,14 +1418,30 @@ class TestSpline2D:
         assert spl.bbox == [1, 2, 3, 4]
 
 
+new_variables_1D = ('w', 'k')
+new_tests_1D = [
+    (None,   1),
+    (None,   2),
+    (None,   3),
+    (None,   4),
+    (None,   5),
+    (test_w, 1),
+    (test_w, 2),
+    (test_w, 3),
+    (test_w, 4),
+    (test_w, 5),
+]
+
+
 @pytest.mark.skipif('not HAS_SCIPY')
 class TestNewSpline1D:
     def setup_class(self):
-        def func(x, noise):
+        def func(x, noise=0):
             return np.exp(-x**2) + 0.1*noise
 
         self.x = np.linspace(-3, 3, npts)
         self.y = func(self.x, noise)
+        self.truth = func(self.x)
 
         arg_sort = np.argsort(self.x)
         np.random.shuffle(arg_sort)
@@ -2006,3 +2022,117 @@ class TestNewSpline1D:
                         mk.call.name(spl),
                         mk.call.param(spl)
                     ]
+
+    def test__set_spline_fit(self):
+        spline = mk.MagicMock()
+        t = mk.MagicMock()
+        c = mk.MagicMock()
+        k = mk.MagicMock()
+        spline._eval_args = (t, c, k)
+
+        spl = NewSpline1D()
+        with mk.patch.object(NewSpline1D, '_initialize_spline_parameters',
+                             autospec=True) as mkInit:
+            with mk.patch.object(NewSpline1D, 'tck',
+                                 new_callable=mk.PropertyMock) as mkTCK:
+                main = mk.MagicMock()
+                main.attach_mock(mkInit, 'init')
+                main.attach_mock(mkTCK, 'tck')
+
+                # Uninitialized
+                spl._set_spline_fit(spline)
+                assert main.mock_calls == [
+                    mk.call.init(spl, t),
+                    mk.call.tck((t, c, k))
+                ]
+
+        # Initialized
+        spl = NewSpline1D(10, 2)
+        with mk.patch.object(NewSpline1D, '_initialize_spline_parameters',
+                             autospec=True) as mkInit:
+            with mk.patch.object(NewSpline1D, 'tck',
+                                 new_callable=mk.PropertyMock) as mkTCK:
+                main = mk.MagicMock()
+                main.attach_mock(mkInit, 'init')
+                main.attach_mock(mkTCK, 'tck')
+
+                spl._set_spline_fit(spline)
+                assert main.mock_calls == [
+                    mk.call.tck((t, c, k))
+                ]
+
+    @pytest.mark.parametrize(new_variables_1D, new_tests_1D)
+    def test_interpolate_data(self, w, k):
+        spl = NewSpline1D(degree=k)
+        assert spl._t is None
+        assert spl._c is None
+        assert spl.degree == k
+
+        spl.interpolate_data(self.x, self.y, w=w)
+        assert len(spl.t) == (len(self.x) + k + 1) == len(spl._knot_names)
+        for idx in range(k + 1):
+            name = f"knot_lower{idx}"
+            self.check_parameter(spl, name, self.x[0])
+            name = f"knot_upper{idx}"
+            self.check_parameter(spl, name, self.x[-1])
+
+        from scipy.interpolate import InterpolatedUnivariateSpline
+        spline = InterpolatedUnivariateSpline(self.x, self.y, w=w, k=k)
+        assert (spl.t == spline._eval_args[0]).all()
+        assert (spl.c == spline._eval_args[1]).all()
+
+        assert spline.get_residual() == 0
+        assert (spl(self.x) == spline(self.x)).all()
+
+        assert_allclose(spl(self.x), self.y)
+        assert_allclose(spl(self.x), self.truth, atol=1)
+
+        # test warning
+        knots = np.linspace(self.x[0], self.x[-1], len(self.x) + k + 1)
+        spl = NewSpline1D(knots=knots, degree=k)
+        with pytest.warns(AstropyUserWarning):
+            spl.interpolate_data(self.x, self.y, w=w)
+
+    @pytest.mark.parametrize(new_variables_1D, new_tests_1D)
+    def test_lsq_fit_data(self, w, k):
+        knots = [-1, 0, 1]
+        t = np.concatenate(([self.x[0]]*(k + 1), knots, [self.x[-1]]*(k + 1)))
+        c = np.zeros(len(t))
+
+        # With knots preset
+        spl = NewSpline1D(knots=knots, degree=k, bounds=[self.x[0], self.x[-1]])
+        assert (spl.t == t).all()
+        assert (spl.c == c).all()
+        assert (spl.t_interior == knots).all()
+        assert spl.degree == k
+
+        spl.lsq_fit_data(self.x, self.y, w=w)
+        assert len(spl.t) == len(t) == len(spl._knot_names)
+        for idx in range(k + 1):
+            name = f"knot_lower{idx}"
+            self.check_parameter(spl, name, self.x[0])
+            name = f"knot_upper{idx}"
+            self.check_parameter(spl, name, self.x[-1])
+
+        from scipy.interpolate import LSQUnivariateSpline
+        spline = LSQUnivariateSpline(self.x, self.y, knots, w=w, k=k)
+
+        assert (spl.t == spline._eval_args[0]).all()
+        assert (spl.c == spline._eval_args[1]).all()
+
+        assert_allclose(spline.get_residual(), 0.1, atol=1)
+        assert (spl(self.x) == spline(self.x)).all()
+
+        assert_allclose(spl(self.x), self.y, atol=1)
+        assert_allclose(spl(self.x), self.truth, atol=1)
+
+        # Pass knots via fitter function
+        with pytest.warns(AstropyUserWarning):
+            spl.lsq_fit_data(self.x, self.y, knots, w=w)
+
+        # Pass no knots
+        spl = NewSpline1D(degree=k)
+        with pytest.raises(RuntimeError) as err:
+            spl.lsq_fit_data(self.x, self.y, w=w)
+        assert str(err.value) ==\
+            "No knots have been provided"

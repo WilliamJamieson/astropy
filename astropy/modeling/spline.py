@@ -627,6 +627,10 @@ class NewSpline1D(Fittable1DModel):
             raise ValueError("There must be exactly as many knots as previously defined.")
 
     @property
+    def t_interior(self):
+        return self.t[self.degree + 1: -(self.degree + 1)]
+
+    @property
     def c(self):
         if self._c is None:
             return np.zeros(len(self.t))
@@ -683,7 +687,7 @@ class NewSpline1D(Fittable1DModel):
     def coeffs(self):
         return [getattr(self, coeff) for coeff in self._coeff_names]
 
-    def _initialize_spline_parameters(self, knots, bounds):
+    def _initialize_spline_parameters(self, knots, bounds=[None, None]):
         self._create_initial_data(knots, bounds)
         self._generate_param_names()
         self._generate_parameters()
@@ -827,8 +831,9 @@ class NewSpline1D(Fittable1DModel):
 
         return optional_inputs
 
-    def evaluate(self, x, **kwargs):
+    def evaluate(self, *args, **kwargs):
         kwargs = self._get_optional_inputs(**kwargs)
+        x = args[0]
 
         if 'nu' in kwargs:
             if kwargs['nu'] > self.degree + 1:
@@ -859,13 +864,13 @@ class NewSpline1D(Fittable1DModel):
     def _set_spline_fit(self, spline):
         tck = spline._eval_args
         if not self._initialized:
-            self._create_initial_data(tck[0])
+            self._initialize_spline_parameters(tck[0])
 
         self.tck = tck
 
     def interpolate_data(self, x, y, w=None, bbox=[None, None]):
         if self._user_knots:
-            warnings.warn("User specified knots are ignored for interpolating data",
+            warnings.warn("The current user specified knots maybe ignored for interpolating data",
                           AstropyUserWarning)
             self._user_knots = False
 
@@ -874,5 +879,25 @@ class NewSpline1D(Fittable1DModel):
 
         from scipy.interpolate import InterpolatedUnivariateSpline
         spline = InterpolatedUnivariateSpline(x, y, w=w, bbox=bbox, k=self._degree)
+
+        self._set_spline_fit(spline)
+
+    def lsq_fit_data(self, x, y, t=None, w=None, bbox=[None, None]):
+        if t is not None:
+            if self._user_knots:
+                warnings.warn("The current user specified knots will be "
+                              "overwritten for by knots passed into this function",
+                              AstropyUserWarning)
+        else:
+            if self._user_knots:
+                t = self.t_interior
+            else:
+                raise RuntimeError("No knots have been provided")
+
+        if bbox != [None, None]:
+            self.bounding_box = bbox
+
+        from scipy.interpolate import LSQUnivariateSpline
+        spline = LSQUnivariateSpline(x, y, t, w=w, bbox=bbox, k=self._degree)
 
         self._set_spline_fit(spline)
