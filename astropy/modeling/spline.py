@@ -882,6 +882,20 @@ class NewSpline1D(Fittable1DModel):
 
         self._set_spline_fit(spline)
 
+    def smoothing_fit(self, x, y, s=None, w=None, bbox=[None, None]):
+        if self._user_knots:
+            warnings.warn("The current user specified knots maybe ignored for interpolating data",
+                          AstropyUserWarning)
+            self._user_knots = False
+
+        if bbox != [None, None]:
+            self.bounding_box = bbox
+
+        from scipy.interpolate import UnivariateSpline
+        spline = UnivariateSpline(x, y, w=w, bbox=bbox, k=self._degree, s=s)
+
+        self._set_spline_fit(spline)
+
     def lsq_fit_data(self, x, y, t=None, w=None, bbox=[None, None]):
         if t is not None:
             if self._user_knots:

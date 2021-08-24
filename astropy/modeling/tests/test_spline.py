@@ -2094,6 +2094,31 @@ class TestNewSpline1D:
             spl.interpolate_data(self.x, self.y, w=w)
 
     @pytest.mark.parametrize(new_variables_1D, new_tests_1D)
+    @pytest.mark.parametrize('s', [None, 0.01])
+    def test_smoothing_data(self, w, k, s):
+        spl = NewSpline1D(degree=k)
+        assert spl._t is None
+        assert spl._c is None
+        assert spl.degree == k
+
+        spl.smoothing_fit(self.x, self.y, s=s, w=w)
+        for idx in range(k + 1):
+            name = f"knot_lower{idx}"
+            self.check_parameter(spl, name, self.x[0])
+            name = f"knot_upper{idx}"
+            self.check_parameter(spl, name, self.x[-1])
+
+        from scipy.interpolate import UnivariateSpline
+        spline = UnivariateSpline(self.x, self.y, w=w, k=k, s=s)
+        assert (spl.t == spline._eval_args[0]).all()
+        assert (spl.c == spline._eval_args[1]).all()
+
+        assert (spl(self.x) == spline(self.x)).all()
+
+        assert_allclose(spl(self.x), self.y, atol=1)
+        assert_allclose(spl(self.x), self.truth, atol=1)
+
+    @pytest.mark.parametrize(new_variables_1D, new_tests_1D)
     def test_lsq_fit_data(self, w, k):
         knots = [-1, 0, 1]
         t = np.concatenate(([self.x[0]]*(k + 1), knots, [self.x[-1]]*(k + 1)))
