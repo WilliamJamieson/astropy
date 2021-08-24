@@ -1438,18 +1438,23 @@ class TestNewSpline1D:
 
         self.t = np.linspace(-3, 3, nknots)[1:-1]
 
+    def check_parameter(self, spl, name, value, new_value=None):
+        assert hasattr(spl, name)
+        param = getattr(spl, name)
+        assert isinstance(param, Parameter)
+        assert param.name == name
+        assert param.value == value
+        assert param.model == spl
+        if new_value is not None:
+            param.value = new_value
+
     def check_knots(self, spl, knots, base_name, value):
         for idx, name in enumerate(knots):
             assert base_name in name
             assert idx == int(name.split(base_name)[-1])
             knot_name = f"{base_name}{idx}"
             assert knot_name == name
-            assert hasattr(spl, knot_name)
-            param = getattr(spl, knot_name)
-            assert isinstance(param, Parameter)
-            assert param.name == knot_name
-            assert param.value == value
-            assert param.model == spl
+            self.check_parameter(spl, knot_name, value)
 
     def check_coeffs(self, spl, value, shift=5):
         assert len(spl._coeff_names) == len(spl._knot_names)
@@ -1458,14 +1463,8 @@ class TestNewSpline1D:
             assert "_coeff" == spl._coeff_names[idx].split(name)[-1]
             coeff_name = f"{name}_coeff"
             assert coeff_name == spl._coeff_names[idx]
-            param = getattr(spl, coeff_name)
-            assert isinstance(param, Parameter)
-            assert param.name == coeff_name
-            # Check coeff vector-> coeff parameter
-            assert param.value == value
-            assert param.model == spl
-            # Check coeff param -> coeff vector set
-            param.value = idx + shift
+            new_value = idx + shift
+            self.check_parameter(spl, coeff_name, value, new_value)
 
     def update_knots(self, spl, knots, value):
         for name in knots:
@@ -1473,51 +1472,156 @@ class TestNewSpline1D:
             param.value = value
             assert param.value == value
 
-    def test___init__(self):
-        # check initialize only
+    def test__init__with_no_knot_information(self):
+        spl = NewSpline1D()
+        assert spl._degree == 3
+        assert spl._nknots is None
+        assert spl._user_knots is False
+        assert spl._t is None
+        assert spl._c is None
+
+        # Check all knot names created
+        assert len(spl._lower_knot_names) == 0
+        assert len(spl._upper_knot_names) == 0
+        assert len(spl._interior_knot_names) == 0
+
+    def test___init__with_number_of_knots(self):
         spl = NewSpline1D(10)
+
+        # Check baseline data
         assert spl._degree == 3
         assert spl._nknots == 10
+        assert spl._user_knots is False
+
+        # Check vector data
         assert len(spl._t) == 18
-        assert (spl._t == np.zeros(18)).all()
+        t = np.zeros(18)
+        t[-4:] = 1
+        assert (spl._t == t).all()
         assert len(spl._c) == 18
         assert (spl._c == np.zeros(18)).all()
 
-        # Check all knot names created
+        # Check all parameter names created:
         assert len(spl._lower_knot_names) == 4
         assert len(spl._upper_knot_names) == 4
         assert len(spl._interior_knot_names) == 10
+        assert len(spl._coeff_names) == 18
 
+        # Check knot values:
+        self.check_knots(spl, spl._lower_knot_names, "knot_lower", 0)
+        self.check_knots(spl, spl._upper_knot_names, "knot_upper", 1)
+        self.check_knots(spl, spl._interior_knot_names, "knot", 0)
+
+        # Check coeff values:
+        assert len(spl._coeff_names) == 18
+        self.check_coeffs(spl, 0)
+
+    def test___init__with_full_custom_knots(self):
+        t = np.arange(20)
+        spl = NewSpline1D(knots=t)
+
+        # Check baseline data
+        assert spl._degree == 3
+        assert spl._nknots == 12
+        assert spl._user_knots is True
+
+        # Check vector data
+        assert (spl._t == t).all()
+        assert len(spl._c) == 20
+        assert (spl._c == np.zeros(20)).all()
+
+        # Check all parameter names created
+        assert len(spl._lower_knot_names) == 4
+        assert len(spl._upper_knot_names) == 4
+        assert len(spl._interior_knot_names) == 12
+        assert len(spl._coeff_names) == 20
+
+        # Check knot values:
+        idx = 0
+        for name in spl._lower_knot_names:
+            self.check_parameter(spl, name, t[idx])
+            idx += 1
+        assert idx == 4
+        for name in spl._interior_knot_names:
+            self.check_parameter(spl, name, t[idx])
+            idx += 1
+        assert idx == 16
+        for name in spl._upper_knot_names:
+            self.check_parameter(spl, name, t[idx])
+            idx += 1
+        assert idx == 20
+        for name in spl._coeff_names:
+            self.check_parameter(spl, name, 0)
+
+    def test___init__with_interior_custom_knots(self):
+        t = np.arange(1, 20)
+        spl = NewSpline1D(knots=t, bounds=[0, 20])
+        # Check baseline data
+        assert spl._degree == 3
+        assert spl._nknots == 19
+        assert spl._user_knots is True
+
+        # Check vector data
+        assert len(spl._t) == 27
+        assert (spl._t[4:-4] == t).all()
+        assert (spl._t[:4] == 0).all()
+        assert (spl._t[-4:] == 20).all()
+
+        assert len(spl._c) == 27
+        assert (spl._c == np.zeros(27)).all()
+
+    def test___init__errors(self):
+        # Bad knot type
+        knots = 3.5
+        with pytest.raises(ValueError) as err:
+            NewSpline1D(knots=knots)
+        assert str(err.value) ==\
+            f"Knots: {knots} must be iterable or value"
+
+        # Not enough knots
+        for idx in range(8):
+            with pytest.raises(ValueError) as err:
+                NewSpline1D(knots=np.arange(idx))
+            assert str(err.value) ==\
+                "Must have at least 8 knots."
+
+        # Bad scipy spline
+        t = np.arange(20)[::-1]
+        with pytest.raises(ValueError):
+            NewSpline1D(knots=t)
+
+    def test_parameter_array_link(self):
+        spl = NewSpline1D(10)
         # Check knot vector -> knot parameter link
         self.check_knots(spl, spl._lower_knot_names, "knot_lower", 0)
-        self.check_knots(spl, spl._upper_knot_names, "knot_upper", 0)
+        self.check_knots(spl, spl._upper_knot_names, "knot_upper", 1)
         self.check_knots(spl, spl._interior_knot_names, "knot", 0)
-        spl._t[0:4] = 1
-        self.check_knots(spl, spl._lower_knot_names, "knot_lower", 1)
-        self.check_knots(spl, spl._upper_knot_names, "knot_upper", 0)
+        spl._t[0:4] = 2
+        self.check_knots(spl, spl._lower_knot_names, "knot_lower", 2)
+        self.check_knots(spl, spl._upper_knot_names, "knot_upper", 1)
         self.check_knots(spl, spl._interior_knot_names, "knot", 0)
-        spl._t[-4:] = 2
-        self.check_knots(spl, spl._lower_knot_names, "knot_lower", 1)
-        self.check_knots(spl, spl._upper_knot_names, "knot_upper", 2)
+        spl._t[-4:] = 3
+        self.check_knots(spl, spl._lower_knot_names, "knot_lower", 2)
+        self.check_knots(spl, spl._upper_knot_names, "knot_upper", 3)
         self.check_knots(spl, spl._interior_knot_names, "knot", 0)
-        spl._t[4:-4] = 3
-        self.check_knots(spl, spl._lower_knot_names, "knot_lower", 1)
-        self.check_knots(spl, spl._upper_knot_names, "knot_upper", 2)
-        self.check_knots(spl, spl._interior_knot_names, "knot", 3)
+        spl._t[4:-4] = 4
+        self.check_knots(spl, spl._lower_knot_names, "knot_lower", 2)
+        self.check_knots(spl, spl._upper_knot_names, "knot_upper", 3)
+        self.check_knots(spl, spl._interior_knot_names, "knot", 4)
 
         # Check knot parameter -> knot vector link
-        self.update_knots(spl, spl._lower_knot_names, 4)
-        assert (spl._t[0:4] == 4).all()
-        assert (spl._t[-4:] == 2).all()
-        assert (spl._t[4:-4] == 3).all()
-        self.update_knots(spl, spl._upper_knot_names, 5)
-        assert (spl._t[0:4] == 4).all()
-        assert (spl._t[-4:] == 5).all()
-        assert (spl._t[4:-4] == 3).all()
-        self.update_knots(spl, spl._interior_knot_names, 6)
-        assert (spl._t[0:4] == 4).all()
-        assert (spl._t[-4:] == 5).all()
-        assert (spl._t[4:-4] == 6).all()
+        self.update_knots(spl, spl._lower_knot_names, 5)
+        assert (spl._t[0:4] == 5).all()
+        assert (spl._t[-4:] == 3).all()
+        assert (spl._t[4:-4] == 4).all()
+        self.update_knots(spl, spl._upper_knot_names, 6)
+        assert (spl._t[0:4] == 5).all()
+        assert (spl._t[-4:] == 6).all()
+        assert (spl._t[4:-4] == 4).all()
+        self.update_knots(spl, spl._interior_knot_names, 7)
+        assert (spl._t[0:4] == 5).all()
+        assert (spl._t[-4:] == 6).all()
+        assert (spl._t[4:-4] == 7).all()
 
         assert len(spl._coeff_names) == 18
         self.check_coeffs(spl, 0)
@@ -1527,11 +1631,6 @@ class TestNewSpline1D:
         self.check_coeffs(spl, 37)
         assert (spl._c == (np.arange(18) + 5)).all()
 
-        with pytest.raises(ValueError) as err:
-            NewSpline1D()
-        assert str(err.value) ==\
-            "Knots: None must be iterable or value"
-
     def test_two_splines(self):
         spl0 = NewSpline1D(10)
         spl1 = NewSpline1D(15, 2)
@@ -1539,13 +1638,17 @@ class TestNewSpline1D:
         assert spl0._degree == 3
         assert spl0._nknots == 10
         assert len(spl0._t) == 18
-        assert (spl0._t == np.zeros(18)).all()
+        t = np.zeros(18)
+        t[-4:] = 1
+        assert (spl0._t == t).all()
         assert len(spl0._c) == 18
         assert (spl0._c == np.zeros(18)).all()
         assert spl1._degree == 2
         assert spl1._nknots == 15
         assert len(spl1._t) == 21
-        assert (spl1._t == np.zeros(21)).all()
+        t = np.zeros(21)
+        t[-3:] = 1
+        assert (spl1._t == t).all()
         assert len(spl1._c) == 21
         assert (spl1._c == np.zeros(21)).all()
 
@@ -1559,18 +1662,18 @@ class TestNewSpline1D:
 
         # Check knot vector -> knot parameter link
         self.check_knots(spl0, spl0._lower_knot_names, "knot_lower", 0)
-        self.check_knots(spl0, spl0._upper_knot_names, "knot_upper", 0)
+        self.check_knots(spl0, spl0._upper_knot_names, "knot_upper", 1)
         self.check_knots(spl0, spl0._interior_knot_names, "knot", 0)
         self.check_knots(spl1, spl1._lower_knot_names, "knot_lower", 0)
-        self.check_knots(spl1, spl1._upper_knot_names, "knot_upper", 0)
+        self.check_knots(spl1, spl1._upper_knot_names, "knot_upper", 1)
         self.check_knots(spl1, spl1._interior_knot_names, "knot", 0)
         spl0._t[0:4] = 1
         spl1._t[0:3] = 2
         self.check_knots(spl0, spl0._lower_knot_names, "knot_lower", 1)
-        self.check_knots(spl0, spl0._upper_knot_names, "knot_upper", 0)
+        self.check_knots(spl0, spl0._upper_knot_names, "knot_upper", 1)
         self.check_knots(spl0, spl0._interior_knot_names, "knot", 0)
         self.check_knots(spl1, spl1._lower_knot_names, "knot_lower", 2)
-        self.check_knots(spl1, spl1._upper_knot_names, "knot_upper", 0)
+        self.check_knots(spl1, spl1._upper_knot_names, "knot_upper", 1)
         self.check_knots(spl1, spl1._interior_knot_names, "knot", 0)
         spl0._t[-4:] = 3
         spl1._t[-3:] = 4

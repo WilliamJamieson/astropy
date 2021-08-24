@@ -576,6 +576,8 @@ class NewSpline1D(Fittable1DModel):
     _coeff_names = ()
     _n_inputs = 1
 
+    optional_inputs = {'nu': 0}
+
     @property
     def _knot_names(self):
         return tuple(list(self._lower_knot_names) +
@@ -591,50 +593,65 @@ class NewSpline1D(Fittable1DModel):
 
         return tuple(list(self._knot_names) + list(self._coeff_names))
 
-    def __init__(self, knots=None, degree=3, bounds=None, n_models=None, model_set_axis=None,
+    def __init__(self, knots=None, degree=3, bounds=[None, None], n_models=None, model_set_axis=None,
                  name=None, meta=None, **params):
         self._degree = degree
 
-        self._create_initial_data(knots, bounds)
+        self._t = None
+        self._c = None
+        self._user_knots = False
+        self._nknots = None
 
         super().__init__(
             n_models=n_models, model_set_axis=model_set_axis, name=name,
             meta=meta, **params)
 
-        self._generate_param_names()
-        self._generate_parameters()
+        if knots is not None:
+            self._initialize_spline_parameters(knots, bounds)
 
     @property
     def t(self):
-        return self._t
+        if self._t is None:
+            return np.concatenate((np.zeros(self._degree + 1), np.ones(self._degree + 1)))
+        else:
+            return self._t
 
     @t.setter
     def t(self, value):
-        if len(value) == len(self._t):
+        if self._t is None or len(value) == len(self._t):
             self._t = value
         else:
             raise ValueError("There must be exactly as many knots as previously defined")
 
     @property
     def c(self):
-        return self._c
+        if self._c is None:
+            return np.zeros(len(self.t))
+        else:
+            return self._c
 
     @c.setter
     def c(self, value):
-        if len(value) == len(self._c):
+        if self._c is None or len(value) == len(self._c):
             self._c = value
         else:
             raise ValueError("There must be exactly as many knots as previously defined")
 
     @property
     def tck(self):
-        return (self._t, self._c, self._degree)
+        return (self.t, self.c, self.degree)
 
     @tck.setter
     def tck(self, value):
         self.t = value[0]
         self.c = value[1]
         self.degree = value[2]
+
+    @property
+    def bspline(self):
+        from scipy.interpolate import BSpline
+
+        return BSpline(*self.tck)
 
     @property
     def knots(self):
@@ -651,30 +668,52 @@ class NewSpline1D(Fittable1DModel):
     @degree.setter
     def degree(self, value):
         if value != self._degree:
-            ValueError("The value of degree cannot be changed by tck tuple")
+            ValueError("The value of degree cannot be changed!")
+
+    def _initialize_spline_parameters(self, knots, bounds):
+        self._create_initial_data(knots, bounds)
+        self._generate_param_names()
+        self._generate_parameters()
 
     def _create_initial_data(self, knots, bounds):
+        if bounds[0] is None:
+            lower = np.zeros(self._degree + 1)
+        else:
+            lower = np.array([bounds[0]] * (self._degree + 1))
+
+        if bounds[1] is None:
+            upper = np.ones(self._degree + 1)
+        else:
+            upper = np.array([bounds[1]] * (self._degree + 1))
+
+        if bounds[0] is not None and bounds[1] is not None:
+            self.bounding_box = bounds
+            has_bounds = True
+        else:
+            has_bounds = False
+
         if np.issubdtype(type(knots), np.integer):
-            self._user_knots = False
             self._nknots = knots
-            self._t = np.zeros(2*(self._degree + 1) + self._nknots)
+            self._t = np.concatenate(
+                (lower, np.zeros(self._nknots), upper)
+            )
         elif isiterable(knots):
             self._user_knots = True
-            if bounds is None:
+            self._nknots = len(knots)
+            if has_bounds:
+                self._t = np.concatenate(
+                    (lower, np.array(knots), upper)
+                )
+            else:
                 if len(knots) < 2*(self._degree + 1):
                     raise ValueError(f"Must have at least {2*(self._degree + 1)} knots.")
+                self._nknots -= 2*(self._degree + 1)
                 self._t = np.array(knots)
-            else:
-                print(f"{bounds=}")
-                self.bounding_box = bounds
-                self._t = np.concatenate((
-                    [bounds[0]] * (self._degree + 1),
-                    np.array(knots),
-                    [bounds[1]] * (self._degree + 1),
-                ))
-            self._nknots = len(knots)
         else:
             raise ValueError(f"Knots: {knots} must be iterable or value")
+
+        # check that knots form a viable spline
+        self.bspline
 
         self._c = np.zeros(len(self._t))
 
@@ -732,8 +771,77 @@ class NewSpline1D(Fittable1DModel):
     def _generate_coeff_names(self, knots: tuple):
         return tuple([f"{knot}_coeff" for knot in knots])
 
-    def evaluate(self, *args, **kwargs):
-        pass
+    @staticmethod
+    def _optional_arg(arg):
+        return f'_{arg}'
+
+    def _create_optional_inputs(self):
+        for arg in self.optional_inputs:
+            attribute = self._optional_arg(arg)
+            if hasattr(self, attribute):
+                raise ValueError(f'Optional argument {arg} already exists in this class!')
+            else:
+                setattr(self, attribute, None)
+
+    def _intercept_optional_inputs(self, **kwargs):
+        new_kwargs = kwargs
+        for arg in self.optional_inputs:
+            if (arg in kwargs):
+                attribute = self._optional_arg(arg)
+                if getattr(self, attribute) is None:
+                    setattr(self, attribute, kwargs[arg])
+                    del new_kwargs[arg]
+                else:
+                    raise RuntimeError(f'{arg} has already been set, something has gone wrong!')
+
+        return new_kwargs
+
+    def _get_optional_inputs(self, **kwargs):
+        optional_inputs = kwargs
+        for arg in self.optional_inputs:
+            attribute = self._optional_arg(arg)
+
+            if arg in kwargs:
+                # Options passed in
+                optional_inputs[arg] = kwargs[arg]
+            elif getattr(self, attribute) is not None:
+                # No options passed in and Options set
+                optional_inputs[arg] = getattr(self, attribute)
+                setattr(self, attribute, None)
+            else:
+                # No options passed in and No options set
+                optional_inputs[arg] = self.optional_inputs[arg]
+
+        return optional_inputs
+
+    def evaluate(self, x, **kwargs):
+        kwargs = self._get_optional_inputs(**kwargs)
+
+        if 'nu' in kwargs:
+            if kwargs['nu'] > self.degree + 1:
+                raise RuntimeError("Cannot evaluate a derivative of "
+                                   f"order higher than{self.degree + 1}")
+
+        return self.bspline(x, **kwargs)
+
+    def __call__(self, *args, **kwargs):
+        """
+        Make model callable to model evaluation
+
+        Parameters
+        ----------
+        x : array_like
+            A 1-D array of points at which to return the value of the smoothed
+            spline or its derivatives. Note: `x` can be unordered but the
+            evaluation is more efficient if `x` is (partially) ordered.
+        nu : int
+            The order of derivative of the spline to compute.
+        """
+
+        # Hack to allow an optional model argument
+        kwargs = self._intercept_optional_inputs(**kwargs)
+
+        return super().__call__(*args, **kwargs)
 
     def interpolate_data(self, x, y, w=None, bbox=[None, None]):
         if self._user_knots:
