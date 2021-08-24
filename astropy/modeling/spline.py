@@ -578,6 +578,23 @@ class NewSpline1D(Fittable1DModel):
 
     optional_inputs = {'nu': 0}
 
+    def __init__(self, knots=None, degree=3, bounds=[None, None], n_models=None, model_set_axis=None,
+                 name=None, meta=None, **params):
+        self._degree = degree
+
+        self._t = None
+        self._c = None
+        self._user_knots = False
+        self._nknots = None
+
+        super().__init__(
+            n_models=n_models, model_set_axis=model_set_axis, name=name,
+            meta=meta, **params)
+
+        self._create_optional_inputs()
+        if knots is not None:
+            self._initialize_spline_parameters(knots, bounds)
+
     @property
     def _knot_names(self):
         return tuple(list(self._lower_knot_names) +
@@ -593,22 +610,6 @@ class NewSpline1D(Fittable1DModel):
 
         return tuple(list(self._knot_names) + list(self._coeff_names))
 
-    def __init__(self, knots=None, degree=3, bounds=[None, None], n_models=None, model_set_axis=None,
-                 name=None, meta=None, **params):
-        self._degree = degree
-
-        self._t = None
-        self._c = None
-        self._user_knots = False
-        self._nknots = None
-
-        super().__init__(
-            n_models=n_models, model_set_axis=model_set_axis, name=name,
-            meta=meta, **params)
-
-        if knots is not None:
-            self._initialize_spline_parameters(knots, bounds)
-
     @property
     def t(self):
         if self._t is None:
@@ -618,10 +619,12 @@ class NewSpline1D(Fittable1DModel):
 
     @t.setter
     def t(self, value):
-        if self._t is None or len(value) == len(self._t):
+        if self._t is None:
+            raise ValueError("The model parameters must be initialized before setting knots.")
+        elif len(value) == len(self._t):
             self._t = value
         else:
-            raise ValueError("There must be exactly as many knots as previously defined")
+            raise ValueError("There must be exactly as many knots as previously defined.")
 
     @property
     def c(self):
@@ -632,10 +635,25 @@ class NewSpline1D(Fittable1DModel):
 
     @c.setter
     def c(self, value):
-        if self._c is None or len(value) == len(self._c):
+        if self._c is None:
+            raise ValueError("The model parameters must be initialized before setting coeffs.")
+        elif len(value) == len(self._c):
             self._c = value
         else:
-            raise ValueError("There must be exactly as many knots as previously defined")
+            raise ValueError("There must be exactly as many coeffs as previously defined.")
+
+    @property
+    def degree(self):
+        return self._degree
+
+    @degree.setter
+    def degree(self, value):
+        if value != self._degree:
+            raise ValueError("The value of degree cannot be changed!")
+
+    @property
+    def _initialized(self):
+        return self._t is not None and self._c is not None
 
     @property
     def tck(self):
@@ -643,9 +661,13 @@ class NewSpline1D(Fittable1DModel):
 
     @tck.setter
     def tck(self, value):
-        self.t = value[0]
-        self.c = value[1]
-        self.degree = value[2]
+        if self._initialized:
+            self.t = value[0]
+            self.c = value[1]
+            self.degree = value[2]
+        else:
+            raise ValueError("The model parameters must be initialized "
+                             "prior to directly setting tck.")
 
     @property
     def bspline(self):
@@ -661,21 +683,12 @@ class NewSpline1D(Fittable1DModel):
     def coeffs(self):
         return [getattr(self, coeff) for coeff in self._coeff_names]
 
-    @property
-    def degree(self):
-        return self._degree
-
-    @degree.setter
-    def degree(self, value):
-        if value != self._degree:
-            ValueError("The value of degree cannot be changed!")
-
     def _initialize_spline_parameters(self, knots, bounds):
         self._create_initial_data(knots, bounds)
         self._generate_param_names()
         self._generate_parameters()
 
-    def _create_initial_data(self, knots, bounds):
+    def _create_initial_data(self, knots, bounds=[None, None]):
         if bounds[0] is None:
             lower = np.zeros(self._degree + 1)
         else:
@@ -720,7 +733,7 @@ class NewSpline1D(Fittable1DModel):
     def _generate_param_names(self):
         self._lower_knot_names = self._generate_exterior_knot_names('lower')
         self._upper_knot_names = self._generate_exterior_knot_names('upper')
-        self._interior_knot_names = [f"knot{idx}" for idx in range(self._nknots)]
+        self._interior_knot_names = tuple([f"knot{idx}" for idx in range(self._nknots)])
         self._coeff_names = self._generate_coeff_names(self._knot_names)
 
     def _generate_parameters(self):
@@ -766,7 +779,7 @@ class NewSpline1D(Fittable1DModel):
         self.__dict__[name] = param
 
     def _generate_exterior_knot_names(self, name: str):
-        return [f"knot_{name}{idx}" for idx in range(self._degree + 1)]
+        return tuple([f"knot_{name}{idx}" for idx in range(self._degree + 1)])
 
     def _generate_coeff_names(self, knots: tuple):
         return tuple([f"{knot}_coeff" for knot in knots])
@@ -843,6 +856,13 @@ class NewSpline1D(Fittable1DModel):
 
         return super().__call__(*args, **kwargs)
 
+    def _set_spline_fit(self, spline):
+        tck = spline._eval_args
+        if not self._initialized:
+            self._create_initial_data(tck[0])
+
+        self.tck = tck
+
     def interpolate_data(self, x, y, w=None, bbox=[None, None]):
         if self._user_knots:
             warnings.warn("User specified knots are ignored for interpolating data",
@@ -853,6 +873,6 @@ class NewSpline1D(Fittable1DModel):
             self.bounding_box = bbox
 
         from scipy.interpolate import InterpolatedUnivariateSpline
-
         spline = InterpolatedUnivariateSpline(x, y, w=w, bbox=bbox, k=self._degree)
-        self.tck = spline._eval_args
+
+        self._set_spline_fit(spline)

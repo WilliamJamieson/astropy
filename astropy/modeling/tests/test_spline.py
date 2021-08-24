@@ -1492,6 +1492,7 @@ class TestNewSpline1D:
         assert spl._degree == 3
         assert spl._nknots == 10
         assert spl._user_knots is False
+        assert spl._nu == None
 
         # Check vector data
         assert len(spl._t) == 18
@@ -1524,6 +1525,7 @@ class TestNewSpline1D:
         assert spl._degree == 3
         assert spl._nknots == 12
         assert spl._user_knots is True
+        assert spl._nu == None
 
         # Check vector data
         assert (spl._t == t).all()
@@ -1560,6 +1562,7 @@ class TestNewSpline1D:
         assert spl._degree == 3
         assert spl._nknots == 19
         assert spl._user_knots is True
+        assert spl._nu == None
 
         # Check vector data
         assert len(spl._t) == 27
@@ -1731,3 +1734,275 @@ class TestNewSpline1D:
         self.check_coeffs(spl1, 48, 32)
         assert (spl0._c == (np.arange(18) + 81)).all()
         assert (spl1._c == (np.arange(21) + 32)).all()
+
+    def test__knot_names(self):
+        # no parameters
+        spl = NewSpline1D()
+        assert spl._lower_knot_names == ()
+        assert spl._upper_knot_names == ()
+        assert spl._interior_knot_names == ()
+        assert spl._knot_names == ()
+
+        # some parameters
+        lower_knots = [f"knot_lower{idx}" for idx in range(4)]
+        upper_knots = [f"knot_upper{idx}" for idx in range(4)]
+        interior_knots = [f"knot{idx}" for idx in range(10)]
+        knot_names = lower_knots + interior_knots + upper_knots
+
+        spl = NewSpline1D(10)
+        assert spl._lower_knot_names == tuple(lower_knots)
+        assert spl._upper_knot_names == tuple(upper_knots)
+        assert spl._interior_knot_names == tuple(interior_knots)
+        assert spl._knot_names == tuple(knot_names)
+
+    def test__coeff_names(self):
+        # no parameters
+        spl = NewSpline1D()
+        assert spl._coeff_names == ()
+
+        # some parameters
+        lower_knots = [f"knot_lower{idx}" for idx in range(4)]
+        upper_knots = [f"knot_upper{idx}" for idx in range(4)]
+        interior_knots = [f"knot{idx}" for idx in range(10)]
+        knot_names = lower_knots + interior_knots + upper_knots
+        coeff_names = [f"{name}_coeff" for name in knot_names]
+
+        spl = NewSpline1D(10)
+        assert spl._coeff_names == tuple(coeff_names)
+
+    def test_param_names(self):
+        # no parameters
+        spl = NewSpline1D()
+        assert spl.param_names == ()
+
+        # some parameters
+        lower_knots = [f"knot_lower{idx}" for idx in range(4)]
+        upper_knots = [f"knot_upper{idx}" for idx in range(4)]
+        interior_knots = [f"knot{idx}" for idx in range(10)]
+        knot_names = lower_knots + interior_knots + upper_knots
+        coeff_names = [f"{name}_coeff" for name in knot_names]
+        param_names = knot_names + coeff_names
+
+        spl = NewSpline1D(10)
+        assert spl.param_names == tuple(param_names)
+
+    def test_t(self):
+        # no parameters
+        spl = NewSpline1D()
+        # test get
+        assert spl._t is None
+        assert (spl.t == [0, 0, 0, 0, 1, 1, 1, 1]).all()
+        # test set
+        with pytest.raises(ValueError) as err:
+            spl.t = mk.MagicMock()
+        assert str(err.value) ==\
+            "The model parameters must be initialized before setting knots."
+
+        # with parameters
+        spl = NewSpline1D(10)
+        # test get
+        t = np.zeros(18)
+        t[-4:] = 1
+        assert (spl._t == t).all()
+        assert (spl.t == t).all()
+        # test set
+        spl.t = (np.arange(18) + 15)
+        assert (spl._t == (np.arange(18) + 15)).all()
+        assert (spl.t == (np.arange(18) + 15)).all()
+        assert (spl.t != t).all()
+        # set error
+        for idx in range(30):
+            if idx == 18:
+                continue
+            with pytest.raises(ValueError) as err:
+                spl.t = np.arange(idx)
+            assert str(err.value) == \
+                "There must be exactly as many knots as previously defined."
+
+    def test_c(self):
+        # no parameters
+        spl = NewSpline1D()
+        # test get
+        assert spl._c is None
+        assert (spl.c == [0, 0, 0, 0, 0, 0, 0, 0]).all()
+        # test set
+        with pytest.raises(ValueError) as err:
+            spl.c = mk.MagicMock()
+        assert str(err.value) ==\
+            "The model parameters must be initialized before setting coeffs."
+
+        # with parameters
+        spl = NewSpline1D(10)
+        # test get
+        assert (spl._c == np.zeros(18)).all()
+        assert (spl.c == np.zeros(18)).all()
+        # test set
+        spl.c = (np.arange(18) + 15)
+        assert (spl._c == (np.arange(18) + 15)).all()
+        assert (spl.c == (np.arange(18) + 15)).all()
+        assert (spl.c != np.zeros(18)).all()
+        # set error
+        for idx in range(30):
+            if idx == 18:
+                continue
+            with pytest.raises(ValueError) as err:
+                spl.c = np.arange(idx)
+            assert str(err.value) == \
+                "There must be exactly as many coeffs as previously defined."
+
+    def test_degree(self):
+        # default degree
+        spl = NewSpline1D()
+        # test get
+        assert spl._degree == 3
+        assert spl.degree == 3
+        # test set
+        spl.degree = 3
+        assert spl._degree == 3
+        assert spl.degree == 3
+        # test set error
+        with pytest.raises(ValueError) as err:
+            spl.degree = 19
+        assert str(err.value) ==\
+            "The value of degree cannot be changed!"
+
+        # non-default degree
+        spl = NewSpline1D(degree=2)
+        # test get
+        assert spl._degree == 2
+        assert spl.degree == 2
+        # test set
+        spl.degree = 2
+        assert spl._degree == 2
+        assert spl.degree == 2
+        # test set error
+        with pytest.raises(ValueError) as err:
+            spl.degree = 19
+        assert str(err.value) ==\
+            "The value of degree cannot be changed!"
+
+    def test__initialized(self):
+        # no parameters
+        spl = NewSpline1D()
+        assert spl._initialized is False
+
+        # with parameters
+        spl = NewSpline1D(10, 2)
+        assert spl._initialized is True
+
+    def test_tck(self):
+        # no parameters
+        spl = NewSpline1D()
+        # test get
+        assert (spl.t == [0, 0, 0, 0, 1, 1, 1, 1]).all()
+        assert (spl.c == [0, 0, 0, 0, 0, 0, 0, 0]).all()
+        assert spl.degree == 3
+        tck = spl.tck
+        assert (tck[0] == spl.t).all()
+        assert (tck[1] == spl.c).all()
+        assert tck[2] == spl.degree
+        # test set
+        with pytest.raises(ValueError) as err:
+            spl.tck = (mk.MagicMock(), mk.MagicMock(), mk.MagicMock())
+        assert str(err.value) ==\
+            "The model parameters must be initialized prior to directly setting tck."
+
+        # with parameters
+        spl = NewSpline1D(10, 2)
+        # test get
+        t = np.zeros(16)
+        t[-3:] = 1
+        assert (spl.t == t).all()
+        assert (spl.c == np.zeros(16)).all()
+        assert spl.degree == 2
+        tck = spl.tck
+        assert (tck[0] == spl.t).all()
+        assert (tck[1] == spl.c).all()
+        assert tck[2] == spl.degree
+        # test set
+        t = 5*np.arange(16) + 11
+        c = 7*np.arange(16) + 13
+        k = 2
+        spl.tck = (t, c, k)
+        assert (spl.t == t).all()
+        assert (spl.c == c).all()
+        assert spl.degree == k
+        tck = spl.tck
+        assert (tck[0] == spl.t).all()
+        assert (tck[1] == spl.c).all()
+        assert tck[2] == spl.degree
+
+    def test_bspline(self):
+        # no parameters
+        spl = NewSpline1D()
+        bspline = spl.bspline
+
+        from scipy.interpolate import BSpline
+        assert isinstance(bspline, BSpline)
+        assert (bspline.tck[0] == spl.tck[0]).all()
+        assert (bspline.tck[1] == spl.tck[1]).all()
+        assert bspline.tck[2] == spl.tck[2]
+
+        # with parameters
+        spl = NewSpline1D(10, 2)
+        bspline = spl.bspline
+
+        from scipy.interpolate import BSpline
+        assert isinstance(bspline, BSpline)
+        assert (bspline.tck[0] == spl.tck[0]).all()
+        assert (bspline.tck[1] == spl.tck[1]).all()
+        assert bspline.tck[2] == spl.tck[2]
+
+    def test_knots(self):
+        # no parameters
+        spl = NewSpline1D()
+        assert spl.knots == []
+
+        # with parameters
+        spl = NewSpline1D(10)
+        knots = spl.knots
+        assert len(knots) == 18
+
+        for knot in knots:
+            assert isinstance(knot, Parameter)
+            assert hasattr(spl, knot.name)
+            assert getattr(spl, knot.name) == knot
+
+    def test_coeffs(self):
+        # no parameters
+        spl = NewSpline1D()
+        assert spl.coeffs == []
+
+        # with parameters
+        spl = NewSpline1D(10)
+        coeffs = spl.coeffs
+        assert len(coeffs) == 18
+
+        for coeff in coeffs:
+            assert isinstance(coeff, Parameter)
+            assert hasattr(spl, coeff.name)
+            assert getattr(spl, coeff.name) == coeff
+
+    def test__initialize_spline_parameters(self):
+        spl = NewSpline1D()
+
+        knots = mk.MagicMock()
+        bounds = mk.MagicMock()
+
+        with mk.patch.object(NewSpline1D, '_create_initial_data',
+                             autospec=True) as mkCreate:
+            with mk.patch.object(NewSpline1D, '_generate_param_names',
+                                 autospec=True) as mkName:
+                with mk.patch.object(NewSpline1D, '_generate_parameters',
+                                     autospec=True) as mkParam:
+                    main = mk.MagicMock()
+                    main.attach_mock(mkCreate, 'create')
+                    main.attach_mock(mkName,   'name')
+                    main.attach_mock(mkParam,  'param')
+
+                    spl._initialize_spline_parameters(knots, bounds)
+                    assert main.mock_calls == [
+                        mk.call.create(spl, knots, bounds),
+                        mk.call.name(spl),
+                        mk.call.param(spl)
+                    ]
