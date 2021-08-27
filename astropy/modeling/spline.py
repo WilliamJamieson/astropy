@@ -12,7 +12,7 @@ import numpy as np
 
 from astropy.utils.exceptions import (AstropyUserWarning,)
 from astropy.utils import isiterable
-from .core import (Fittable1DModel, Fittable2DModel,)
+from .core import (FittableModel, Fittable1DModel, Fittable2DModel,)
 
 from .parameters import Parameter
 
@@ -569,37 +569,25 @@ class Spline2D(Fittable2DModel, _Spline):
         return fp, ier, msg
 
 
-class NewSpline1D(Fittable1DModel):
-    _lower_knot_names = ()
-    _upper_knot_names = ()
-    _interior_knot_names = ()
+class _NewSpline(FittableModel):
+    _knot_names = ()
     _coeff_names = ()
-    _n_inputs = 1
 
-    optional_inputs = {'nu': 0}
+    optional_inputs = {}
 
-    def __init__(self, knots=None, degree=3, bounds=[None, None], n_models=None, model_set_axis=None,
+    def __init__(self, knots=None, degree=None, bounds=[None, None], n_models=None, model_set_axis=None,
                  name=None, meta=None, **params):
-        self._degree = degree
-
-        self._t = None
-        self._c = None
-        self._user_knots = False
-        self._nknots = None
 
         super().__init__(
             n_models=n_models, model_set_axis=model_set_axis, name=name,
             meta=meta, **params)
 
-        self._create_optional_inputs()
-        if knots is not None:
-            self._initialize_spline_parameters(knots, bounds)
+        self._t = None
+        self._c = None
+        self._user_knots = False
 
-    @property
-    def _knot_names(self):
-        return tuple(list(self._lower_knot_names) +
-                     list(self._interior_knot_names) +
-                     list(self._upper_knot_names))
+        # Hack to allow an optional model argument
+        self._create_optional_inputs()
 
     @property
     def param_names(self):
@@ -609,6 +597,106 @@ class NewSpline1D(Fittable1DModel):
         """
 
         return tuple(list(self._knot_names) + list(self._coeff_names))
+
+    @staticmethod
+    def _optional_arg(arg):
+        return f'_{arg}'
+
+    def _create_optional_inputs(self):
+        for arg in self.optional_inputs:
+            attribute = self._optional_arg(arg)
+            if hasattr(self, attribute):
+                raise ValueError(f'Optional argument {arg} already exists in this class!')
+            else:
+                setattr(self, attribute, None)
+
+    def _intercept_optional_inputs(self, **kwargs):
+        new_kwargs = kwargs
+        for arg in self.optional_inputs:
+            if (arg in kwargs):
+                attribute = self._optional_arg(arg)
+                if getattr(self, attribute) is None:
+                    setattr(self, attribute, kwargs[arg])
+                    del new_kwargs[arg]
+                else:
+                    raise RuntimeError(f'{arg} has already been set, something has gone wrong!')
+
+        return new_kwargs
+
+    def _get_optional_inputs(self, **kwargs):
+        optional_inputs = kwargs
+        for arg in self.optional_inputs:
+            attribute = self._optional_arg(arg)
+
+            if arg in kwargs:
+                # Options passed in
+                optional_inputs[arg] = kwargs[arg]
+            elif getattr(self, attribute) is not None:
+                # No options passed in and Options set
+                optional_inputs[arg] = getattr(self, attribute)
+                setattr(self, attribute, None)
+            else:
+                # No options passed in and No options set
+                optional_inputs[arg] = self.optional_inputs[arg]
+
+        return optional_inputs
+
+    def _create_parameter(self, name: str, index, attr: str):
+        def _getter(value, model: "_NewSpline", index: int, attr: str):
+            return getattr(model, attr)[index]
+
+        def _setter(value, model: "_NewSpline", index: int, attr: str):
+            getattr(model, attr)[index] = value
+            return value
+
+        default = getattr(self, attr)
+        getter = functools.partial(_getter, index=index, attr=attr)
+        setter = functools.partial(_setter, index=index, attr=attr)
+        param = Parameter(name=name, default=default[index], getter=getter, setter=setter)
+        param.model = self
+        param.value = default[index]
+
+        self.__dict__[name] = param
+
+    def _create_parameters(self, base_name: str, attr: str):
+        names = []
+        for index in range(len(getattr(self, attr))):
+            name = f"{base_name}{index}"
+            names.append(name)
+
+            self._create_parameter(name, index, attr)
+
+        return tuple(names)
+
+    def _init_parameters(self):
+        raise NotImplementedError("This needs to be implemented")
+
+
+class NewSpline1D(_NewSpline):
+    n_inputs = 1
+    n_outputs = 1
+    _separable = True
+
+    optional_inputs = {'nu': 0}
+
+    def __init__(self, knots=None, degree=3, bounds=[None, None], n_models=None, model_set_axis=None,
+                 name=None, meta=None, **params):
+        self._nknots = None
+        self._degree = degree
+
+        super().__init__(
+            knots=knots, degree=degree,
+            n_models=n_models, model_set_axis=model_set_axis, name=name, meta=meta, **params
+        )
+
+        if knots is not None:
+            self._initialize_spline_parameters(knots, bounds)
+
+    # @property
+    # def _knot_names(self):
+    #     return tuple(list(self._lower_knot_names) +
+    #                  list(self._interior_knot_names) +
+    #                  list(self._upper_knot_names))
 
     @property
     def t(self):
@@ -687,10 +775,15 @@ class NewSpline1D(Fittable1DModel):
     def coeffs(self):
         return [getattr(self, coeff) for coeff in self._coeff_names]
 
+    def _init_parameters(self):
+        self._knot_names = self._create_parameters("knot", "t")
+        self._coeff_names = self._create_parameters("coeff", "c")
+
     def _initialize_spline_parameters(self, knots, bounds=[None, None]):
         self._create_initial_data(knots, bounds)
-        self._generate_param_names()
-        self._generate_parameters()
+        self._init_parameters()
+        # self._generate_param_names()
+        # self._generate_parameters()
 
     def _create_initial_data(self, knots, bounds=[None, None]):
         if bounds[0] is None:
@@ -734,102 +827,59 @@ class NewSpline1D(Fittable1DModel):
 
         self._c = np.zeros(len(self._t))
 
-    def _generate_param_names(self):
-        self._lower_knot_names = self._generate_exterior_knot_names('lower')
-        self._upper_knot_names = self._generate_exterior_knot_names('upper')
-        self._interior_knot_names = tuple([f"knot{idx}" for idx in range(self._nknots)])
-        self._coeff_names = self._generate_coeff_names(self._knot_names)
+    # def _generate_param_names(self):
+    #     self._lower_knot_names = self._generate_exterior_knot_names('lower')
+    #     self._upper_knot_names = self._generate_exterior_knot_names('upper')
+    #     self._interior_knot_names = tuple([f"knot{idx}" for idx in range(self._nknots)])
+    #     self._coeff_names = self._generate_coeff_names(self._knot_names)
 
-    def _generate_parameters(self):
-        for param_name in self._knot_names:
-            self._create_parameter(param_name, 't')
+    # def _generate_parameters(self):
+    #     for param_name in self._knot_names:
+    #         self._create_parameter(param_name, 't')
 
-        for param_name in self._coeff_names:
-            self._create_parameter(param_name, 'c')
+    #     for param_name in self._coeff_names:
+    #         self._create_parameter(param_name, 'c')
 
-    @staticmethod
-    def _get_param_index(name):
-        indices = [int(s) for s in re.findall(r'\d+', name)]
-        if len(indices) != 1:
-            raise RuntimeError('There should be only one index for a knot.')
-        return indices[0]
+    # @staticmethod
+    # def _get_param_index(name):
+    #     indices = [int(s) for s in re.findall(r'\d+', name)]
+    #     if len(indices) != 1:
+    #         raise RuntimeError('There should be only one index for a knot.')
+    #     return indices[0]
 
-    def _create_parameter(self, name: str, attr):
-        index = self._get_param_index(name)
+    # def _create_parameter(self, name: str, attr):
+    #     index = self._get_param_index(name)
 
-        if 'knot_lower' in name:
-            pass
-        elif 'knot_upper' in name:
-            index = -(self._degree + 1 - index)
-        elif 'knot' in name:
-            index = self._degree + 1 + index
-        else:
-            raise RuntimeError('This should be a knot')
+    #     if 'knot_lower' in name:
+    #         pass
+    #     elif 'knot_upper' in name:
+    #         index = -(self._degree + 1 - index)
+    #     elif 'knot' in name:
+    #         index = self._degree + 1 + index
+    #     else:
+    #         raise RuntimeError('This should be a knot')
 
-        def _getter(value, model, index, attr):
-            return getattr(model, attr)[index]
+    #     def _getter(value, model, index, attr):
+    #         return getattr(model, attr)[index]
 
-        def _setter(value, model, index, attr):
-            getattr(model, attr)[index] = value
-            return value
+    #     def _setter(value, model, index, attr):
+    #         getattr(model, attr)[index] = value
+    #         return value
 
-        default = getattr(self, attr)
-        getter = functools.partial(_getter, index=index, attr=attr)
-        setter = functools.partial(_setter, index=index, attr=attr)
-        param = Parameter(name=name, default=default[index], getter=getter, setter=setter)
-        param.model = self
-        param.value = default[index]
+    #     default = getattr(self, attr)
+    #     getter = functools.partial(_getter, index=index, attr=attr)
+    #     setter = functools.partial(_setter, index=index, attr=attr)
+    #     param = Parameter(name=name, default=default[index], getter=getter, setter=setter)
+    #     param.model = self
+    #     param.value = default[index]
 
-        self.__dict__[name] = param
+    #     self.__dict__[name] = param
 
-    def _generate_exterior_knot_names(self, name: str):
-        return tuple([f"knot_{name}{idx}" for idx in range(self._degree + 1)])
+    # def _generate_exterior_knot_names(self, name: str):
+    #     return tuple([f"knot_{name}{idx}" for idx in range(self._degree + 1)])
 
-    def _generate_coeff_names(self, knots: tuple):
-        return tuple([f"{knot}_coeff" for knot in knots])
-
-    @staticmethod
-    def _optional_arg(arg):
-        return f'_{arg}'
-
-    def _create_optional_inputs(self):
-        for arg in self.optional_inputs:
-            attribute = self._optional_arg(arg)
-            if hasattr(self, attribute):
-                raise ValueError(f'Optional argument {arg} already exists in this class!')
-            else:
-                setattr(self, attribute, None)
-
-    def _intercept_optional_inputs(self, **kwargs):
-        new_kwargs = kwargs
-        for arg in self.optional_inputs:
-            if (arg in kwargs):
-                attribute = self._optional_arg(arg)
-                if getattr(self, attribute) is None:
-                    setattr(self, attribute, kwargs[arg])
-                    del new_kwargs[arg]
-                else:
-                    raise RuntimeError(f'{arg} has already been set, something has gone wrong!')
-
-        return new_kwargs
-
-    def _get_optional_inputs(self, **kwargs):
-        optional_inputs = kwargs
-        for arg in self.optional_inputs:
-            attribute = self._optional_arg(arg)
-
-            if arg in kwargs:
-                # Options passed in
-                optional_inputs[arg] = kwargs[arg]
-            elif getattr(self, attribute) is not None:
-                # No options passed in and Options set
-                optional_inputs[arg] = getattr(self, attribute)
-                setattr(self, attribute, None)
-            else:
-                # No options passed in and No options set
-                optional_inputs[arg] = self.optional_inputs[arg]
-
-        return optional_inputs
+    # def _generate_coeff_names(self, knots: tuple):
+    #     return tuple([f"{knot}_coeff" for knot in knots])
 
     def evaluate(self, *args, **kwargs):
         kwargs = self._get_optional_inputs(**kwargs)
