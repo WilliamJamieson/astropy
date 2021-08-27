@@ -1454,7 +1454,7 @@ class TestNewSpline1D:
 
         self.t = np.linspace(-3, 3, nknots)[1:-1]
 
-    def check_parameter(self, spl, base_name, name, index, value):
+    def check_parameter(self, spl, base_name, name, index, value, fixed):
         assert base_name in name
         assert index == int(name.split(base_name)[-1])
         knot_name = f"{base_name}{index}"
@@ -1465,10 +1465,11 @@ class TestNewSpline1D:
         assert param.name == name
         assert param.value == value(index)
         assert param.model == spl
+        assert param.fixed is fixed
 
-    def check_parameters(self, spl, params, base_name, value):
+    def check_parameters(self, spl, params, base_name, value, fixed):
         for idx, name in enumerate(params):
-            self.check_parameter(spl, base_name, name, idx, value)
+            self.check_parameter(spl, base_name, name, idx, value, fixed)
 
     def update_parameters(self, spl, knots, value):
         for name in knots:
@@ -1515,12 +1516,12 @@ class TestNewSpline1D:
                 return 0
             else:
                 return 1
-        self.check_parameters(spl, spl._knot_names, "knot", value0)
+        self.check_parameters(spl, spl._knot_names, "knot", value0, True)
 
         # Check coeff values:
         def value1(idx):
             return 0
-        self.check_parameters(spl, spl._coeff_names, "coeff", value1)
+        self.check_parameters(spl, spl._coeff_names, "coeff", value1, False)
 
     def test___init__with_full_custom_knots(self):
         t = np.arange(20)
@@ -1544,7 +1545,7 @@ class TestNewSpline1D:
         # Check knot values:
         def value0(idx):
             return t[idx]
-        self.check_parameters(spl, spl._knot_names, "knot", value0)
+        self.check_parameters(spl, spl._knot_names, "knot", value0, True)
 
     def test___init__with_interior_custom_knots(self):
         t = np.arange(1, 20)
@@ -1593,7 +1594,7 @@ class TestNewSpline1D:
                 return 0
             else:
                 return 1
-        self.check_parameters(spl, spl._knot_names, "knot", value0)
+        self.check_parameters(spl, spl._knot_names, "knot", value0, True)
 
         # Check knot vector -> knot parameter link
         t = np.arange(18)
@@ -1601,7 +1602,7 @@ class TestNewSpline1D:
 
         def value1(idx):
             return t[idx]
-        self.check_parameters(spl, spl._knot_names, "knot", value1)
+        self.check_parameters(spl, spl._knot_names, "knot", value1, True)
 
         # Check knot parameter -> knot vector link
         self.update_parameters(spl, spl._knot_names, 3)
@@ -1610,7 +1611,7 @@ class TestNewSpline1D:
         # Check coeff base values
         def value2(idx):
             return 0
-        self.check_parameters(spl, spl._coeff_names, "coeff", value2)
+        self.check_parameters(spl, spl._coeff_names, "coeff", value2, False)
 
         # Check coeff vector -> coeff parameter link
         c = 5 * np.arange(18) + 18
@@ -1618,7 +1619,7 @@ class TestNewSpline1D:
 
         def value3(idx):
             return c[idx]
-        self.check_parameters(spl, spl._coeff_names, "coeff", value3)
+        self.check_parameters(spl, spl._coeff_names, "coeff", value3, False)
 
         # Check coeff parameter -> coeff vector link
         self.update_parameters(spl, spl._coeff_names, 4)
@@ -1655,14 +1656,14 @@ class TestNewSpline1D:
                 return 0
             else:
                 return 1
-        self.check_parameters(spl0, spl0._knot_names, "knot", value0)
+        self.check_parameters(spl0, spl0._knot_names, "knot", value0, True)
 
         def value1(idx):
             if idx < 21 - 3:
                 return 0
             else:
                 return 1
-        self.check_parameters(spl1, spl1._knot_names, "knot", value1)
+        self.check_parameters(spl1, spl1._knot_names, "knot", value1, True)
 
         # Check knot vector -> knot parameter link
         t0 = 7 * np.arange(18) + 27
@@ -1672,11 +1673,11 @@ class TestNewSpline1D:
 
         def value2(idx):
             return t0[idx]
-        self.check_parameters(spl0, spl0._knot_names, "knot", value2)
+        self.check_parameters(spl0, spl0._knot_names, "knot", value2, True)
 
         def value3(idx):
             return t1[idx]
-        self.check_parameters(spl1, spl1._knot_names, "knot", value3)
+        self.check_parameters(spl1, spl1._knot_names, "knot", value3, True)
 
         # Check knot parameter -> knot vector link
         self.update_parameters(spl0, spl0._knot_names, 3)
@@ -1691,8 +1692,8 @@ class TestNewSpline1D:
         # Check coeff base values
         def value4(idx):
             return 0
-        self.check_parameters(spl0, spl0._coeff_names, "coeff", value4)
-        self.check_parameters(spl1, spl1._coeff_names, "coeff", value4)
+        self.check_parameters(spl0, spl0._coeff_names, "coeff", value4, False)
+        self.check_parameters(spl1, spl1._coeff_names, "coeff", value4, False)
 
         # Check coeff vector -> coeff parameter link
         c0 = 17 * np.arange(18) + 14
@@ -1702,11 +1703,11 @@ class TestNewSpline1D:
 
         def value5(idx):
             return c0[idx]
-        self.check_parameters(spl0, spl0._coeff_names, "coeff", value5)
+        self.check_parameters(spl0, spl0._coeff_names, "coeff", value5, False)
 
         def value6(idx):
             return c1[idx]
-        self.check_parameters(spl1, spl1._coeff_names, "coeff", value6)
+        self.check_parameters(spl1, spl1._coeff_names, "coeff", value6, False)
 
         # Check coeff parameter -> coeff vector link
         self.update_parameters(spl0, spl0._coeff_names, 5)
@@ -1980,7 +1981,7 @@ class TestNewSpline1D:
         spline._eval_args = (t, c, k)
 
         spl = NewSpline1D()
-        with mk.patch.object(NewSpline1D, '_initialize_spline_parameters',
+        with mk.patch.object(NewSpline1D, '_init_spline',
                              autospec=True) as mkInit:
             with mk.patch.object(NewSpline1D, 'tck',
                                  new_callable=mk.PropertyMock) as mkTCK:
@@ -1997,7 +1998,7 @@ class TestNewSpline1D:
 
         # Initialized
         spl = NewSpline1D(10, 2)
-        with mk.patch.object(NewSpline1D, '_initialize_spline_parameters',
+        with mk.patch.object(NewSpline1D, '_init_spline',
                              autospec=True) as mkInit:
             with mk.patch.object(NewSpline1D, 'tck',
                                  new_callable=mk.PropertyMock) as mkTCK:
@@ -2019,11 +2020,11 @@ class TestNewSpline1D:
 
         for idx in range(k + 1):
             name = f"knot{idx}"
-            self.check_parameter(spl, "knot", name, idx, value0)
+            self.check_parameter(spl, "knot", name, idx, value0, True)
 
             index = len(spl.t) - (k + 1) + idx
             name = f"knot{index}"
-            self.check_parameter(spl, "knot", name, index, value1)
+            self.check_parameter(spl, "knot", name, index, value1, True)
 
         def value3(idx):
             return spl.t[idx]
@@ -2031,7 +2032,7 @@ class TestNewSpline1D:
         assert len(spl._knot_names) == len(spl.t)
         for idx, name in enumerate(spl._knot_names):
             assert name == f"knot{idx}"
-            self.check_parameter(spl, "knot", name, idx, value3)
+            self.check_parameter(spl, "knot", name, idx, value3, True)
 
     def check_coeffs_created(self, spl):
         def value(idx):
@@ -2040,7 +2041,7 @@ class TestNewSpline1D:
         assert len(spl._coeff_names) == len(spl.c)
         for idx, name in enumerate(spl._coeff_names):
             assert name == f"coeff{idx}"
-            self.check_parameter(spl, "coeff", name, idx, value)
+            self.check_parameter(spl, "coeff", name, idx, value, False)
 
     @pytest.mark.parametrize(new_variables_1D, new_tests_1D)
     def test_interpolate_data(self, w, k):
