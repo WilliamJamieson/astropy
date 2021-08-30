@@ -2163,10 +2163,26 @@ class TestNewSpline1D:
         assert (tck[1] == spl.c).all()
         assert tck[2] == spl.degree
         # test set
-        with pytest.raises(ValueError) as err:
-            spl.tck = (mk.MagicMock(), mk.MagicMock(), mk.MagicMock())
-        assert str(err.value) ==\
-            "The model parameters must be initialized prior to directly setting tck."
+        assert spl._t is None
+        assert spl._c is None
+        assert spl._knot_names == ()
+        assert spl._coeff_names == ()
+        t = np.array([0, 0, 0, 0, 1, 2, 3, 4, 5, 5, 5, 5])
+        np.random.seed(619)
+        c = np.random.random(12)
+        k = 3
+        spl.tck = (t, c, k)
+        assert (spl._t == t).all()
+        assert (spl._c == c).all()
+        assert spl.degree == k
+
+        def value0(idx):
+            return t[idx]
+        self.check_parameters(spl, spl._knot_names, "knot", value0, True)
+
+        def value1(idx):
+            return c[idx]
+        self.check_parameters(spl, spl._coeff_names, "coeff", value1, False)
 
         # with parameters
         spl = NewSpline1D(10, 2)
@@ -2194,21 +2210,58 @@ class TestNewSpline1D:
         assert tck[2] == spl.degree
 
     def test_bspline(self):
+        from scipy.interpolate import BSpline
         # no parameters
         spl = NewSpline1D()
         bspline = spl.bspline
 
-        from scipy.interpolate import BSpline
         assert isinstance(bspline, BSpline)
         assert (bspline.tck[0] == spl.tck[0]).all()
         assert (bspline.tck[1] == spl.tck[1]).all()
         assert bspline.tck[2] == spl.tck[2]
 
+        t = np.array([0, 0, 0, 0, 1, 2, 3, 4, 5, 5, 5, 5])
+        np.random.seed(619)
+        c = np.random.random(12)
+        k = 3
+
+        def value0(idx):
+            return t[idx]
+
+        def value1(idx):
+            return c[idx]
+
+        # set (bspline)
+        spl = NewSpline1D()
+        assert spl._t is None
+        assert spl._c is None
+        assert spl._knot_names == ()
+        assert spl._coeff_names == ()
+        bspline = BSpline(t, c, k)
+        spl.bspline = bspline
+        assert (spl._t == t).all()
+        assert (spl._c == c).all()
+        assert spl.degree == k
+        self.check_parameters(spl, spl._knot_names, "knot", value0, True)
+        self.check_parameters(spl, spl._coeff_names, "coeff", value1, False)
+
+        # set (tuple spline)
+        spl = NewSpline1D()
+        assert spl._t is None
+        assert spl._c is None
+        assert spl._knot_names == ()
+        assert spl._coeff_names == ()
+        spl.bspline = (t, c, k)
+        assert (spl._t == t).all()
+        assert (spl._c == c).all()
+        assert spl.degree == k
+        self.check_parameters(spl, spl._knot_names, "knot", value0, True)
+        self.check_parameters(spl, spl._coeff_names, "coeff", value1, False)
+
         # with parameters
         spl = NewSpline1D(10, 2)
         bspline = spl.bspline
 
-        from scipy.interpolate import BSpline
         assert isinstance(bspline, BSpline)
         assert (bspline.tck[0] == spl.tck[0]).all()
         assert (bspline.tck[1] == spl.tck[1]).all()
@@ -2244,67 +2297,161 @@ class TestNewSpline1D:
             assert hasattr(spl, coeff.name)
             assert getattr(spl, coeff.name) == coeff
 
-    # def test__initialize_spline_parameters(self):
-    #     spl = NewSpline1D()
-
-    #     knots = mk.MagicMock()
-    #     bounds = mk.MagicMock()
-
-    #     with mk.patch.object(NewSpline1D, '_create_initial_data',
-    #                          autospec=True) as mkCreate:
-    #         with mk.patch.object(NewSpline1D, '_generate_param_names',
-    #                              autospec=True) as mkName:
-    #             with mk.patch.object(NewSpline1D, '_generate_parameters',
-    #                                  autospec=True) as mkParam:
-    #                 main = mk.MagicMock()
-    #                 main.attach_mock(mkCreate, 'create')
-    #                 main.attach_mock(mkName,   'name')
-    #                 main.attach_mock(mkParam,  'param')
-
-    #                 spl._initialize_spline_parameters(knots, bounds)
-    #                 assert main.mock_calls == [
-    #                     mk.call.create(spl, knots, bounds),
-    #                     mk.call.name(spl),
-    #                     mk.call.param(spl)
-    #                 ]
-
-    def test__set_spline_fit(self):
-        spline = mk.MagicMock()
-        t = mk.MagicMock()
-        c = mk.MagicMock()
-        k = mk.MagicMock()
-        spline._eval_args = (t, c, k)
-
+    def test__init_parameters(self):
         spl = NewSpline1D()
-        with mk.patch.object(NewSpline1D, '_init_spline',
-                             autospec=True) as mkInit:
-            with mk.patch.object(NewSpline1D, 'tck',
-                                 new_callable=mk.PropertyMock) as mkTCK:
-                main = mk.MagicMock()
-                main.attach_mock(mkInit, 'init')
-                main.attach_mock(mkTCK, 'tck')
 
-                # Uninitialized
-                spl._set_spline_fit(spline)
-                assert main.mock_calls == [
-                    mk.call.init(spl, t, c),
-                    mk.call.tck((t, c, k))
-                ]
+        with mk.patch.object(NewSpline1D, '_create_parameters',
+                             autospec=True) as mkCreate:
+            spl._init_parameters()
+            assert mkCreate.call_args_list == [
+                mk.call(spl, "knot", "t", fixed=True),
+                mk.call(spl, "coeff", "c")
+            ]
 
-        # Initialized
-        spl = NewSpline1D(10, 2)
-        with mk.patch.object(NewSpline1D, '_init_spline',
-                             autospec=True) as mkInit:
-            with mk.patch.object(NewSpline1D, 'tck',
-                                 new_callable=mk.PropertyMock) as mkTCK:
-                main = mk.MagicMock()
-                main.attach_mock(mkInit, 'init')
-                main.attach_mock(mkTCK, 'tck')
+    def test__init_bounds(self):
+        spl = NewSpline1D()
 
-                spl._set_spline_fit(spline)
-                assert main.mock_calls == [
-                    mk.call.tck((t, c, k))
-                ]
+        has_bounds, lower, upper = spl._init_bounds()
+        assert has_bounds is False
+        assert (lower == [0, 0, 0, 0]).all()
+        assert (upper == [1, 1, 1, 1]).all()
+        assert spl._user_bounding_box is None
+
+        has_bounds, lower, upper = spl._init_bounds((-5, 5))
+        assert has_bounds is True
+        assert (lower == [-5, -5, -5, -5]).all()
+        assert (upper == [5, 5, 5, 5]).all()
+        assert spl._user_bounding_box == (-5, 5)
+
+    def test__init_knots(self):
+        np.random.seed(19)
+        lower = np.random.random(4)
+        upper = np.random.random(4)
+
+        # Integer
+        with mk.patch.object(NewSpline1D, "bspline",
+                             new_callable=mk.PropertyMock) as mkBspline:
+            spl = NewSpline1D()
+            assert spl._t is None
+            spl._init_knots(10, mk.MagicMock(), lower, upper)
+            t = np.concatenate((lower, np.zeros(10), upper))
+            assert (spl._t == t).all()
+            assert mkBspline.call_args_list == [mk.call()]
+
+        # vector with bounds
+        with mk.patch.object(NewSpline1D, "bspline",
+                             new_callable=mk.PropertyMock) as mkBspline:
+            knots = np.random.random(10)
+            spl = NewSpline1D()
+            assert spl._t is None
+            spl._init_knots(knots, True, lower, upper)
+            t = np.concatenate((lower, knots, upper))
+            assert (spl._t == t).all()
+            assert mkBspline.call_args_list == [mk.call()]
+
+        # vector with no bounds
+        with mk.patch.object(NewSpline1D, "bspline",
+                             new_callable=mk.PropertyMock) as mkBspline:
+            knots = np.random.random(10)
+            spl = NewSpline1D()
+            assert spl._t is None
+            spl._init_knots(knots, False, lower, upper)
+            assert (spl._t == knots).all()
+            assert mkBspline.call_args_list == [mk.call()]
+
+            # error
+            for num in range(8):
+                knots = np.random.random(num)
+                spl = NewSpline1D()
+                assert spl._t is None
+                with pytest.raises(ValueError) as err:
+                    spl._init_knots(knots, False, lower, upper)
+                assert str(err.value) == \
+                    "Must have at least 8 knots."
+
+        # Error
+        spl = NewSpline1D()
+        assert spl._t is None
+        with pytest.raises(ValueError) as err:
+            spl._init_knots(0.5, False, lower, upper)
+        assert str(err.value) ==\
+            "Knots: 0.5 must be iterable or value"
+
+    def test__init_coeffs(self):
+        np.random.seed(492)
+        # No coeffs
+        with mk.patch.object(NewSpline1D, "bspline",
+                             new_callable=mk.PropertyMock) as mkBspline:
+            spl = NewSpline1D()
+            assert spl._c is None
+            spl._t = [1, 2, 3, 4]
+            spl._init_coeffs()
+            assert (spl._c == [0, 0, 0, 0]).all()
+            assert mkBspline.call_args_list == [mk.call()]
+
+        # Some coeffs
+        with mk.patch.object(NewSpline1D, "bspline",
+                             new_callable=mk.PropertyMock) as mkBspline:
+            coeffs = np.random.random(10)
+            spl = NewSpline1D()
+            assert spl._c is None
+            spl._init_coeffs(coeffs)
+            assert (spl._c == coeffs).all()
+            assert mkBspline.call_args_list == [mk.call()]
+
+    def test__init_data(self):
+        spl = NewSpline1D()
+
+        knots = mk.MagicMock()
+        coeffs = mk.MagicMock()
+        bounds = mk.MagicMock()
+        has_bounds = mk.MagicMock()
+        lower = mk.MagicMock()
+        upper = mk.MagicMock()
+        with mk.patch.object(NewSpline1D, '_init_bounds', autospec=True,
+                             return_value=(has_bounds, lower, upper)) as mkBounds:
+            with mk.patch.object(NewSpline1D, '_init_knots',
+                                 autospec=True) as mkKnots:
+                with mk.patch.object(NewSpline1D, '_init_coeffs',
+                                     autospec=True) as mkCoeffs:
+                    main = mk.MagicMock()
+                    main.attach_mock(mkBounds, 'bounds')
+                    main.attach_mock(mkKnots, 'knots')
+                    main.attach_mock(mkCoeffs, 'coeffs')
+
+                    spl._init_data(knots, coeffs, bounds)
+                    assert main.mock_calls == [
+                        mk.call.bounds(spl, bounds),
+                        mk.call.knots(spl, knots, has_bounds, lower, upper),
+                        mk.call.coeffs(spl, coeffs)
+                    ]
+
+    def test_evaluate(self):
+        spl = NewSpline1D()
+
+        args = tuple([mk.MagicMock() for _ in range(3)])
+        kwargs = {f"test{idx}": mk.MagicMock() for idx in range(3)}
+        new_kwargs = {f"new_test{idx}": mk.MagicMock() for idx in range(3)}
+
+        with mk.patch.object(_NewSpline, 'evaluate', autospec=True,
+                             return_value=new_kwargs) as mkEval:
+            with mk.patch.object(NewSpline1D, "bspline",
+                                 new_callable=mk.PropertyMock) as mkBspline:
+                assert mkBspline.return_value.return_value == spl.evaluate(*args, **kwargs)
+                assert mkBspline.return_value.call_args_list == \
+                    [mk.call(args[0], **new_kwargs)]
+                assert mkBspline.call_args_list == [mk.call()]
+                assert mkEval.call_args_list == \
+                    [mk.call(spl, *args, **kwargs)]
+
+        # Error
+        for idx in range(5, 8):
+            with mk.patch.object(_NewSpline, 'evaluate', autospec=True,
+                                 return_value={'nu': idx}):
+                with pytest.raises(RuntimeError) as err:
+                    spl.evaluate(*args, **kwargs)
+                assert str(err.value) == \
+                    "Cannot evaluate a derivative of order higher than 4"
 
     def check_knots_created(self, spl, k):
         def value0(idx):
@@ -2626,3 +2773,121 @@ class TestNewSpline1D:
             assert spl.degree == k
             assert mkSplrep.call_args_list == \
                 [mk.call(spl, x, y, w=w, s=s, task=task, t=t, bbox=bbox)]
+
+    def generate_spline(self, w=None, bbox=[None]*2, k=None, s=None, t=None):
+        if k is None:
+            k = 3
+
+        from scipy.interpolate import splrep, BSpline
+
+        tck = splrep(self.x, self.y, w=w, xb=bbox[0], xe=bbox[1],
+                     k=k, s=s, t=t)
+
+        return BSpline(*tck)
+
+    def test_derivative(self):
+        bspline = self.generate_spline()
+
+        spl = NewSpline1D()
+        spl.bspline = bspline
+        assert (spl.t == bspline.t).all()
+        assert (spl.c == bspline.c).all()
+        assert spl.degree == bspline.k
+
+        # 1st derivative
+        d_bspline = bspline.derivative(nu=1)
+        assert_allclose(d_bspline(self.xs),       bspline(self.xs, nu=1))
+        assert_allclose(d_bspline(self.xs, nu=1), bspline(self.xs, nu=2))
+        assert_allclose(d_bspline(self.xs, nu=2), bspline(self.xs, nu=3))
+        assert_allclose(d_bspline(self.xs, nu=3), bspline(self.xs, nu=4))
+
+        der = spl.derivative()
+        assert (der.t == d_bspline.t).all()
+        assert (der.c == d_bspline.c).all()
+        assert der.degree == d_bspline.k == 2
+        assert_allclose(der.evaluate(self.xs),       spl.evaluate(self.xs, nu=1))
+        assert_allclose(der.evaluate(self.xs, nu=1), spl.evaluate(self.xs, nu=2))
+        assert_allclose(der.evaluate(self.xs, nu=2), spl.evaluate(self.xs, nu=3))
+        assert_allclose(der.evaluate(self.xs, nu=3), spl.evaluate(self.xs, nu=4))
+
+        # 2nd derivative
+        d_bspline = bspline.derivative(nu=2)
+        assert_allclose(d_bspline(self.xs),       bspline(self.xs, nu=2))
+        assert_allclose(d_bspline(self.xs, nu=1), bspline(self.xs, nu=3))
+        assert_allclose(d_bspline(self.xs, nu=2), bspline(self.xs, nu=4))
+
+        der = spl.derivative(nu=2)
+        assert (der.t == d_bspline.t).all()
+        assert (der.c == d_bspline.c).all()
+        assert der.degree == d_bspline.k == 1
+        assert_allclose(der.evaluate(self.xs),       spl.evaluate(self.xs, nu=2))
+        assert_allclose(der.evaluate(self.xs, nu=1), spl.evaluate(self.xs, nu=3))
+        assert_allclose(der.evaluate(self.xs, nu=2), spl.evaluate(self.xs, nu=4))
+
+        # 3rd derivative
+        d_bspline = bspline.derivative(nu=3)
+        assert_allclose(d_bspline(self.xs),       bspline(self.xs, nu=3))
+        assert_allclose(d_bspline(self.xs, nu=1), bspline(self.xs, nu=4))
+
+        der = spl.derivative(nu=3)
+        assert (der.t == d_bspline.t).all()
+        assert (der.c == d_bspline.c).all()
+        assert der.degree == d_bspline.k == 0
+        assert_allclose(der.evaluate(self.xs),       spl.evaluate(self.xs, nu=3))
+        assert_allclose(der.evaluate(self.xs, nu=1), spl.evaluate(self.xs, nu=4))
+
+        # Too many derivatives
+        for nu in range(4, 9):
+            with pytest.raises(ValueError) as err:
+                spl.derivative(nu=nu)
+            assert str(err.value) == \
+                "Must have nu <= 3"
+
+    def test_antiderivative(self):
+        bspline = self.generate_spline()
+
+        spl = NewSpline1D()
+        spl.bspline = bspline
+
+        # 1st antiderivative
+        a_bspline = bspline.antiderivative(nu=1)
+        assert_allclose(bspline(self.xs),       a_bspline(self.xs, nu=1))
+        assert_allclose(bspline(self.xs, nu=1), a_bspline(self.xs, nu=2))
+        assert_allclose(bspline(self.xs, nu=2), a_bspline(self.xs, nu=3))
+        assert_allclose(bspline(self.xs, nu=3), a_bspline(self.xs, nu=4))
+        assert_allclose(bspline(self.xs, nu=4), a_bspline(self.xs, nu=5))
+
+        anti = spl.antiderivative()
+        assert (anti.t == a_bspline.t).all()
+        assert (anti.c == a_bspline.c).all()
+        assert anti.degree == a_bspline.k == 4
+        assert_allclose(spl.evaluate(self.xs),       anti.evaluate(self.xs, nu=1))
+        assert_allclose(spl.evaluate(self.xs, nu=1), anti.evaluate(self.xs, nu=2))
+        assert_allclose(spl.evaluate(self.xs, nu=2), anti.evaluate(self.xs, nu=3))
+        assert_allclose(spl.evaluate(self.xs, nu=3), anti.evaluate(self.xs, nu=4))
+        assert_allclose(spl.evaluate(self.xs, nu=4), anti.evaluate(self.xs, nu=5))
+
+        # 2nd antiderivative
+        a_bspline = bspline.antiderivative(nu=2)
+        assert_allclose(bspline(self.xs),       a_bspline(self.xs, nu=2))
+        assert_allclose(bspline(self.xs, nu=1), a_bspline(self.xs, nu=3))
+        assert_allclose(bspline(self.xs, nu=2), a_bspline(self.xs, nu=4))
+        assert_allclose(bspline(self.xs, nu=3), a_bspline(self.xs, nu=5))
+        assert_allclose(bspline(self.xs, nu=4), a_bspline(self.xs, nu=6))
+
+        anti = spl.antiderivative(nu=2)
+        assert (anti.t == a_bspline.t).all()
+        assert (anti.c == a_bspline.c).all()
+        assert anti.degree == a_bspline.k == 5
+        assert_allclose(spl.evaluate(self.xs),       anti.evaluate(self.xs, nu=2))
+        assert_allclose(spl.evaluate(self.xs, nu=1), anti.evaluate(self.xs, nu=3))
+        assert_allclose(spl.evaluate(self.xs, nu=2), anti.evaluate(self.xs, nu=4))
+        assert_allclose(spl.evaluate(self.xs, nu=3), anti.evaluate(self.xs, nu=5))
+        assert_allclose(spl.evaluate(self.xs, nu=4), anti.evaluate(self.xs, nu=6))
+
+        # Too many anti derivatives
+        for nu in range(3, 9):
+            with pytest.raises(ValueError) as err:
+                spl.antiderivative(nu=nu)
+            assert str(err.value) == \
+                f"Supported splines can have max degree 5, antiderivative degree will be {nu + 3}"

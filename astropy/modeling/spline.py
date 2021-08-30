@@ -773,14 +773,22 @@ class NewSpline1D(_NewSpline):
             self.c = value[1]
             self.degree = value[2]
         else:
-            raise ValueError("The model parameters must be initialized "
-                             "prior to directly setting tck.")
+            self._init_spline(value[0], value[1])
 
     @property
     def bspline(self):
         from scipy.interpolate import BSpline
 
         return BSpline(*self.tck)
+
+    @bspline.setter
+    def bspline(self, value):
+        from scipy.interpolate import BSpline
+
+        if isinstance(value, BSpline):
+            self.tck = value.tck
+        else:
+            self.tck = value
 
     @property
     def knots(self):
@@ -841,14 +849,13 @@ class NewSpline1D(_NewSpline):
         if coeffs is None:
             self._c = np.zeros(len(self._t))
         else:
-            self._c = coeffs
+            self._c = np.array(coeffs)
 
         # check that coeffs form a viable spline
         self.bspline
 
     def _init_data(self, knots, coeffs, bounds=None):
-        has_bounds, lower, upper = self._init_bounds(bounds)
-        self._init_knots(knots, has_bounds, lower, upper)
+        self._init_knots(knots, *self._init_bounds(bounds))
         self._init_coeffs(coeffs)
 
     def evaluate(self, *args, **kwargs):
@@ -858,16 +865,9 @@ class NewSpline1D(_NewSpline):
         if 'nu' in kwargs:
             if kwargs['nu'] > self.degree + 1:
                 raise RuntimeError("Cannot evaluate a derivative of "
-                                   f"order higher than{self.degree + 1}")
+                                   f"order higher than {self.degree + 1}")
 
         return self.bspline(x, **kwargs)
-
-    def _set_spline_fit(self, spline):
-        tck = spline._eval_args
-        if not self._initialized:
-            self._init_spline(tck[0], tck[1])
-
-        self.tck = tck
 
     def interpolate_data(self, x, y, w=None, bbox=[None, None]):
         if self._user_knots:
@@ -881,7 +881,7 @@ class NewSpline1D(_NewSpline):
         from scipy.interpolate import InterpolatedUnivariateSpline
         spline = InterpolatedUnivariateSpline(x, y, w=w, bbox=bbox, k=self._degree)
 
-        self._set_spline_fit(spline)
+        self.tck = spline._eval_args
 
     @classmethod
     def interpolate(cls, x, y, k=3, w=None, bbox=[None, None]):
@@ -902,7 +902,7 @@ class NewSpline1D(_NewSpline):
         from scipy.interpolate import UnivariateSpline
         spline = UnivariateSpline(x, y, w=w, bbox=bbox, k=self._degree, s=s)
 
-        self._set_spline_fit(spline)
+        self.tck = spline._eval_args
 
     @classmethod
     def smoothing(cls, x, y, k=3, s=None, w=None, bbox=[None, None]):
@@ -929,7 +929,7 @@ class NewSpline1D(_NewSpline):
         from scipy.interpolate import LSQUnivariateSpline
         spline = LSQUnivariateSpline(x, y, t, w=w, bbox=bbox, k=self._degree)
 
-        self._set_spline_fit(spline)
+        self.tck = spline._eval_args
 
     @classmethod
     def lsq(cls, x, y, t, k=3, w=None, bbox=[None, None]):
@@ -951,11 +951,8 @@ class NewSpline1D(_NewSpline):
         if bbox != [None, None]:
             self.bounding_box = bbox
 
-        from scipy.interpolate import splrep, UnivariateSpline
-        tck = splrep(x, y, w=w, xb=bbox[0], xe=bbox[1], k=self._degree, s=s, t=t, task=task)
-        spline = UnivariateSpline._from_tck(tck)
-
-        self._set_spline_fit(spline)
+        from scipy.interpolate import splrep
+        self.tck = splrep(x, y, w=w, xb=bbox[0], xe=bbox[1], k=self._degree, s=s, t=t, task=task)
 
     @classmethod
     def splrep(cls, x, y, k=3, w=None, s=None, task=0, t=None, bbox=[None, None]):
@@ -963,3 +960,46 @@ class NewSpline1D(_NewSpline):
         spline.splrep_data(x, y, w=w, s=s, task=task, t=t, bbox=bbox)
 
         return spline
+
+    def derivative(self, nu=1):
+        """
+        Create a spline that is a derivative of this one
+
+        Parameters
+        ----------
+        nu : int, optional
+            Derivative order, default is 1.
+        """
+        if nu <= self.degree:
+            bspline = self.bspline.derivative(nu=nu)
+
+            derivative = NewSpline1D(degree=bspline.k)
+            derivative.bspline = bspline
+
+            return derivative
+        else:
+            raise ValueError(f'Must have nu <= {self.degree}')
+
+    def antiderivative(self, nu=1):
+        """
+        Create a spline that is a derivative of this one
+
+        Parameters
+        ----------
+        nu : int, optional
+            Antiderivative order, default is 1.
+
+        Notes
+        -----
+        Assumes constant of integration is 0
+        """
+        if (nu + self.degree) <= 5:
+            bspline = self.bspline.antiderivative(nu=nu)
+
+            antiderivative = NewSpline1D(degree=bspline.k)
+            antiderivative.bspline = bspline
+
+            return antiderivative
+        else:
+            raise ValueError("Supported splines can have max degree 5, "
+                             f"antiderivative degree will be {nu + self.degree}")
