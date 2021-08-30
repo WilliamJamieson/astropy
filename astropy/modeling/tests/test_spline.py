@@ -1480,7 +1480,6 @@ class TestNewSpline1D:
     def test__init__with_no_knot_information(self):
         spl = NewSpline1D()
         assert spl._degree == 3
-        assert spl._nknots is None
         assert spl._user_knots is False
         assert spl._t is None
         assert spl._c is None
@@ -1494,7 +1493,6 @@ class TestNewSpline1D:
 
         # Check baseline data
         assert spl._degree == 3
-        assert spl._nknots == 10
         assert spl._user_knots is False
         assert spl._nu == None
 
@@ -1524,12 +1522,11 @@ class TestNewSpline1D:
         self.check_parameters(spl, spl._coeff_names, "coeff", value1, False)
 
     def test___init__with_full_custom_knots(self):
-        t = np.arange(20)
+        t = 17*np.arange(20) - 32
         spl = NewSpline1D(knots=t)
 
         # Check baseline data
         assert spl._degree == 3
-        assert spl._nknots == 12
         assert spl._user_knots is True
         assert spl._nu == None
 
@@ -1547,12 +1544,16 @@ class TestNewSpline1D:
             return t[idx]
         self.check_parameters(spl, spl._knot_names, "knot", value0, True)
 
+        # Check coeff values
+        def value1(idx):
+            return 0
+        self.check_parameters(spl, spl._coeff_names, "coeff", value1, False)
+
     def test___init__with_interior_custom_knots(self):
         t = np.arange(1, 20)
         spl = NewSpline1D(knots=t, bounds=[0, 20])
         # Check baseline data
         assert spl._degree == 3
-        assert spl._nknots == 19
         assert spl._user_knots is True
         assert spl._nu == None
 
@@ -1564,6 +1565,21 @@ class TestNewSpline1D:
 
         assert len(spl._c) == 27
         assert (spl._c == np.zeros(27)).all()
+
+        # Check knot values:
+        def value0(idx):
+            if idx < 4:
+                return 0
+            elif idx >= 19 + 4:
+                return 20
+            else:
+                return t[idx-4]
+        self.check_parameters(spl, spl._knot_names, "knot", value0, True)
+
+        # Check coeff values
+        def value1(idx):
+            return 0
+        self.check_parameters(spl, spl._coeff_names, "coeff", value1, False)
 
     def test___init__errors(self):
         # Bad knot type
@@ -1630,7 +1646,6 @@ class TestNewSpline1D:
         spl1 = NewSpline1D(15, 2)
 
         assert spl0._degree == 3
-        assert spl0._nknots == 10
         assert len(spl0._t) == 18
         t = np.zeros(18)
         t[-4:] = 1
@@ -1638,7 +1653,6 @@ class TestNewSpline1D:
         assert len(spl0._c) == 18
         assert (spl0._c == np.zeros(18)).all()
         assert spl1._degree == 2
-        assert spl1._nknots == 15
         assert len(spl1._t) == 21
         t = np.zeros(21)
         t[-3:] = 1
@@ -1992,7 +2006,7 @@ class TestNewSpline1D:
                 # Uninitialized
                 spl._set_spline_fit(spline)
                 assert main.mock_calls == [
-                    mk.call.init(spl, t),
+                    mk.call.init(spl, t, c),
                     mk.call.tck((t, c, k))
                 ]
 

@@ -575,7 +575,7 @@ class _NewSpline(FittableModel):
 
     optional_inputs = {}
 
-    def __init__(self, knots=None, degree=None, bounds=None, n_models=None, model_set_axis=None,
+    def __init__(self, knots=None, coeffs=None, degree=None, bounds=None, n_models=None, model_set_axis=None,
                  name=None, meta=None, **params):
 
         super().__init__(
@@ -591,7 +591,9 @@ class _NewSpline(FittableModel):
         self._create_optional_inputs()
 
         if knots is not None:
-            self._init_spline(knots, bounds)
+            self._init_spline(knots, coeffs, bounds)
+        elif coeffs is not None:
+            raise ValueError("If one passes a coeffs vector one needs to also pass a knots vector!")
 
     @property
     def param_names(self):
@@ -676,11 +678,11 @@ class _NewSpline(FittableModel):
     def _init_parameters(self):
         raise NotImplementedError("This needs to be implemented")
 
-    def _init_data(self, knots, bounds=None):
+    def _init_data(self, knots, coeffs, bounds=None):
         raise NotImplementedError("This needs to be implemented")
 
-    def _init_spline(self, knots, bounds=None):
-        self._init_data(knots, bounds)
+    def _init_spline(self, knots, coeffs, bounds=None):
+        self._init_data(knots, coeffs, bounds)
         self._init_parameters()
 
 
@@ -693,7 +695,6 @@ class NewSpline1D(_NewSpline):
 
     def __init__(self, knots=None, degree=3, bounds=None, n_models=None, model_set_axis=None,
                  name=None, meta=None, **params):
-        self._nknots = None
 
         super().__init__(
             knots=knots, degree=degree, bounds=bounds,
@@ -803,17 +804,13 @@ class NewSpline1D(_NewSpline):
 
         return has_bounds, lower, upper
 
-    def _init_data(self, knots, bounds=None):
-        has_bounds, lower, upper = self._init_bounds(bounds)
-
+    def _init_knots(self, knots, has_bounds, lower, upper):
         if np.issubdtype(type(knots), np.integer):
-            self._nknots = knots
             self._t = np.concatenate(
-                (lower, np.zeros(self._nknots), upper)
+                (lower, np.zeros(knots), upper)
             )
         elif isiterable(knots):
             self._user_knots = True
-            self._nknots = len(knots)
             if has_bounds:
                 self._t = np.concatenate(
                     (lower, np.array(knots), upper)
@@ -821,7 +818,6 @@ class NewSpline1D(_NewSpline):
             else:
                 if len(knots) < 2*(self._degree + 1):
                     raise ValueError(f"Must have at least {2*(self._degree + 1)} knots.")
-                self._nknots -= 2*(self._degree + 1)
                 self._t = np.array(knots)
         else:
             raise ValueError(f"Knots: {knots} must be iterable or value")
@@ -829,7 +825,19 @@ class NewSpline1D(_NewSpline):
         # check that knots form a viable spline
         self.bspline
 
-        self._c = np.zeros(len(self._t))
+    def _init_coeffs(self, coeffs=None):
+        if coeffs is None:
+            self._c = np.zeros(len(self._t))
+        else:
+            self._c = coeffs
+
+        # check that coeffs form a viable spline
+        self.bspline
+
+    def _init_data(self, knots, coeffs, bounds=None):
+        has_bounds, lower, upper = self._init_bounds(bounds)
+        self._init_knots(knots, has_bounds, lower, upper)
+        self._init_coeffs(coeffs)
 
     def evaluate(self, *args, **kwargs):
         kwargs = self._get_optional_inputs(**kwargs)
@@ -864,7 +872,7 @@ class NewSpline1D(_NewSpline):
     def _set_spline_fit(self, spline):
         tck = spline._eval_args
         if not self._initialized:
-            self._init_spline(tck[0])
+            self._init_spline(tck[0], tck[1])
 
         self.tck = tck
 
