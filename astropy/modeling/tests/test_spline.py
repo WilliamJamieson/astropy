@@ -16,8 +16,9 @@ from numpy.testing import assert_allclose
 from astropy.utils.compat.optional_deps import HAS_SCIPY  # noqa
 
 from astropy.utils.exceptions import (AstropyUserWarning,)
-from astropy.modeling.core import (ModelDefinitionError,)
-from astropy.modeling.spline import (_Spline, Spline1D, Spline2D, NewSpline1D)
+from astropy.modeling.core import (ModelDefinitionError, FittableModel)
+from astropy.modeling.spline import (_Spline, Spline1D, Spline2D,
+                                     _NewSpline, NewSpline1D)
 from astropy.modeling.fitting import SplineFitter
 from astropy.modeling.parameters import Parameter
 
@@ -1431,6 +1432,286 @@ new_tests_1D = [
     (test_w, 4),
     (test_w, 5),
 ]
+
+
+class TestNewSpline:
+    def setup_class(self):
+        self.num_opt = 3
+        self.optional_inputs = {f'test{i}': mk.MagicMock() for i in range(self.num_opt)}
+        self.extra_kwargs = {f'new{i}': mk.MagicMock() for i in range(self.num_opt)}
+
+    def test___init__(self):
+        class Spline(_NewSpline):
+            optional_inputs = {'test': 'test'}
+
+        # empty spline
+        spl = Spline()
+        assert spl._t is None
+        assert spl._c is None
+        assert spl._user_knots is False
+        assert spl._degree is None
+        assert spl._test == None
+
+        # Call _init_spline
+        with mk.patch.object(_NewSpline, '_init_spline',
+                             autospec=True) as mkInit:
+            # No call (knots=None)
+            spl = Spline()
+            assert mkInit.call_args_list == []
+
+            knots = mk.MagicMock()
+            coeffs = mk.MagicMock()
+            bounds = mk.MagicMock()
+            spl = Spline(knots=knots, coeffs=coeffs, bounds=bounds)
+            assert mkInit.call_args_list == \
+                [mk.call(spl, knots, coeffs, bounds)]
+
+            assert spl._t is None
+            assert spl._c is None
+            assert spl._user_knots is False
+            assert spl._degree is None
+            assert spl._test == None
+
+        # Coeffs but no knots
+        with pytest.raises(ValueError) as err:
+            Spline(coeffs=mk.MagicMock())
+        assert str(err.value) == \
+            "If one passes a coeffs vector one needs to also pass a knots vector!"
+
+    def test_param_names(self):
+        # no parameters
+        spl = _NewSpline()
+        assert spl.param_names == ()
+
+        knot_names = tuple([mk.MagicMock() for _ in range(3)])
+        spl._knot_names = knot_names
+        assert spl.param_names == knot_names
+
+        coeff_names = tuple([mk.MagicMock() for _ in range(3)])
+        spl._coeff_names = coeff_names
+        assert spl.param_names == knot_names + coeff_names
+
+    def test__optional_arg(self):
+        class Spline(_Spline):
+            pass
+
+        spl = Spline()
+        assert spl._optional_arg('test') == '_test'
+
+    def test__create_optional_inputs(self):
+        class Spline(_Spline):
+            optional_inputs = self.optional_inputs
+
+            def __init__(self):
+                self._create_optional_inputs()
+
+        spl = Spline()
+        for arg in self.optional_inputs:
+            attribute = spl._optional_arg(arg)
+            assert hasattr(spl, attribute)
+            assert getattr(spl, attribute) is None
+
+        with pytest.raises(ValueError,
+                           match=r"Optional argument .* already exists in this class!"):
+            spl._create_optional_inputs()
+
+    def test__intercept_optional_inputs(self):
+        class Spline(_Spline):
+            optional_inputs = self.optional_inputs
+
+            def __init__(self):
+                self._create_optional_inputs()
+
+        spl = Spline()
+        new_kwargs = spl._intercept_optional_inputs(**self.extra_kwargs)
+        for arg, value in self.optional_inputs.items():
+            attribute = spl._optional_arg(arg)
+            assert getattr(spl, attribute) is None
+        assert new_kwargs == self.extra_kwargs
+
+        kwargs = self.extra_kwargs.copy()
+        for arg in self.optional_inputs:
+            kwargs[arg] = mk.MagicMock()
+        new_kwargs = spl._intercept_optional_inputs(**kwargs)
+        for arg, value in self.optional_inputs.items():
+            attribute = spl._optional_arg(arg)
+            assert getattr(spl, attribute) is not None
+            assert getattr(spl, attribute) == kwargs[arg]
+            assert getattr(spl, attribute) != value
+            assert arg not in new_kwargs
+        assert new_kwargs == self.extra_kwargs
+        assert kwargs != self.extra_kwargs
+
+        with pytest.raises(RuntimeError,
+                           match=r".* has already been set, something has gone wrong!"):
+            spl._intercept_optional_inputs(**kwargs)
+
+    def test_evaluate(self):
+        class Spline(_NewSpline):
+            optional_inputs = self.optional_inputs
+
+        spl = Spline()
+
+        # No options passed in and No options set
+        new_kwargs = spl.evaluate(**self.extra_kwargs)
+        for arg, value in self.optional_inputs.items():
+            assert new_kwargs[arg] == value
+        for arg, value in self.extra_kwargs.items():
+            assert new_kwargs[arg] == value
+        assert len(new_kwargs) == (len(self.optional_inputs) + len(self.extra_kwargs))
+
+        # No options passed in and Options set
+        kwargs = self.extra_kwargs.copy()
+        for arg in self.optional_inputs:
+            kwargs[arg] = mk.MagicMock()
+        spl._intercept_optional_inputs(**kwargs)
+        new_kwargs = spl.evaluate(**self.extra_kwargs)
+        assert new_kwargs == kwargs
+        for arg in self.optional_inputs:
+            attribute = spl._optional_arg(arg)
+            assert getattr(spl, attribute) is None
+
+        # Options passed in
+        set_kwargs = self.extra_kwargs.copy()
+        for arg in self.optional_inputs:
+            kwargs[arg] = mk.MagicMock()
+        spl._intercept_optional_inputs(**set_kwargs)
+        kwargs = self.extra_kwargs.copy()
+        for arg in self.optional_inputs:
+            kwargs[arg] = mk.MagicMock()
+        assert set_kwargs != kwargs
+        new_kwargs = spl.evaluate(**kwargs)
+        assert new_kwargs == kwargs
+
+    def test___call__(self):
+        spl = _NewSpline()
+
+        args = tuple([mk.MagicMock() for _ in range(3)])
+        kwargs = {f"test{idx}": mk.MagicMock() for idx in range(3)}
+        new_kwargs = {f"new_test{idx}": mk.MagicMock() for idx in range(3)}
+        with mk.patch.object(_NewSpline, "_intercept_optional_inputs",
+                             autospec=True, return_value=new_kwargs) as mkIntercept:
+            with mk.patch.object(FittableModel, "__call__",
+                                 autospec=True) as mkCall:
+                assert mkCall.return_value == spl(*args, **kwargs)
+                assert mkCall.call_args_list == \
+                    [mk.call(spl, *args, **new_kwargs)]
+                assert mkIntercept.call_args_list == \
+                    [mk.call(spl, **kwargs)]
+
+    def test__create_parameter(self):
+        np.random.seed(37)
+        base_vec = np.random.random(20)
+        test = base_vec.copy()
+        fixed_test = base_vec.copy()
+
+        class Spline(_NewSpline):
+            @property
+            def test(self):
+                return test
+
+            @property
+            def fixed_test(self):
+                return fixed_test
+
+        spl = Spline()
+        assert (spl.test == test).all()
+        assert (spl.fixed_test == fixed_test).all()
+
+        for index in range(20):
+            name = f"test_name{index}"
+            spl._create_parameter(name, index, 'test')
+            assert hasattr(spl, name)
+            param = getattr(spl, name)
+            assert isinstance(param, Parameter)
+            assert param.model == spl
+            assert param.fixed is False
+            assert param.value == test[index] == spl.test[index] == base_vec[index]
+            new_set = np.random.random()
+            param.value = new_set
+            assert spl.test[index] == new_set
+            assert spl.test[index] != base_vec[index]
+            new_get = np.random.random()
+            spl.test[index] = new_get
+            assert param.value == new_get
+            assert param.value != new_set
+
+        for index in range(20):
+            name = f"fixed_test_name{index}"
+            spl._create_parameter(name, index, 'fixed_test', True)
+            assert hasattr(spl, name)
+            param = getattr(spl, name)
+            assert isinstance(param, Parameter)
+            assert param.model == spl
+            assert param.fixed is True
+            assert param.value == fixed_test[index] == spl.fixed_test[index] == base_vec[index]
+            new_set = np.random.random()
+            param.value = new_set
+            assert spl.fixed_test[index] == new_set
+            assert spl.fixed_test[index] != base_vec[index]
+            new_get = np.random.random()
+            spl.fixed_test[index] = new_get
+            assert param.value == new_get
+            assert param.value != new_set
+
+    def test__create_parameters(self):
+        np.random.seed(37)
+        test = np.random.random(20)
+
+        class Spline(_NewSpline):
+            @property
+            def test(self):
+                return test
+
+        spl = Spline()
+
+        fixed = mk.MagicMock()
+        with mk.patch.object(_NewSpline, '_create_parameter',
+                             autospec=True) as mkCreate:
+            params = spl._create_parameters("test_param", "test", fixed)
+            assert params == tuple([f"test_param{idx}" for idx in range(20)])
+            assert mkCreate.call_args_list == \
+                [mk.call(spl, f"test_param{idx}", idx, 'test', fixed) for idx in range(20)]
+
+    def test__init_parameters(self):
+        spl = _NewSpline()
+
+        with pytest.raises(NotImplementedError) as err:
+            spl._init_parameters()
+        assert str(err.value) == \
+            "This needs to be implemented"
+
+    def test__init_data(self):
+        spl = _NewSpline()
+
+        with pytest.raises(NotImplementedError) as err:
+            spl._init_data(mk.MagicMock(), mk.MagicMock(), mk.MagicMock())
+        assert str(err.value) == \
+            "This needs to be implemented"
+        with pytest.raises(NotImplementedError) as err:
+            spl._init_data(mk.MagicMock(), mk.MagicMock())
+        assert str(err.value) == \
+            "This needs to be implemented"
+
+    def test__init_spline(self):
+        spl = _NewSpline()
+
+        knots = mk.MagicMock()
+        coeffs = mk.MagicMock()
+        bounds = mk.MagicMock()
+        with mk.patch.object(_NewSpline, "_init_parameters",
+                             autospec=True) as mkParameters:
+            with mk.patch.object(_NewSpline, "_init_data",
+                                 autospec=True) as mkData:
+                main = mk.MagicMock()
+                main.attach_mock(mkParameters, 'parameters')
+                main.attach_mock(mkData, 'data')
+
+                spl._init_spline(knots, coeffs, bounds)
+                assert main.mock_calls == [
+                    mk.call.data(spl, knots, coeffs, bounds),
+                    mk.call.parameters(spl)
+                ]
 
 
 @pytest.mark.skipif('not HAS_SCIPY')

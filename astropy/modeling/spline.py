@@ -629,7 +629,9 @@ class _NewSpline(FittableModel):
 
         return new_kwargs
 
-    def _get_optional_inputs(self, **kwargs):
+    def evaluate(self, *args, **kwargs):
+        """ Extract the optional kwargs passed to call """
+
         optional_inputs = kwargs
         for arg in self.optional_inputs:
             attribute = self._optional_arg(arg)
@@ -646,6 +648,16 @@ class _NewSpline(FittableModel):
                 optional_inputs[arg] = self.optional_inputs[arg]
 
         return optional_inputs
+
+    def __call__(self, *args, **kwargs):
+        """
+        Make model callable to model evaluation
+        """
+
+        # Hack to allow an optional model argument
+        kwargs = self._intercept_optional_inputs(**kwargs)
+
+        return super().__call__(*args, **kwargs)
 
     def _create_parameter(self, name: str, index, attr: str, fixed=False):
         def _getter(value, model: "_NewSpline", index: int, attr: str):
@@ -840,7 +852,7 @@ class NewSpline1D(_NewSpline):
         self._init_coeffs(coeffs)
 
     def evaluate(self, *args, **kwargs):
-        kwargs = self._get_optional_inputs(**kwargs)
+        kwargs = super().evaluate(*args, **kwargs)
         x = args[0]
 
         if 'nu' in kwargs:
@@ -849,25 +861,6 @@ class NewSpline1D(_NewSpline):
                                    f"order higher than{self.degree + 1}")
 
         return self.bspline(x, **kwargs)
-
-    def __call__(self, *args, **kwargs):
-        """
-        Make model callable to model evaluation
-
-        Parameters
-        ----------
-        x : array_like
-            A 1-D array of points at which to return the value of the smoothed
-            spline or its derivatives. Note: `x` can be unordered but the
-            evaluation is more efficient if `x` is (partially) ordered.
-        nu : int
-            The order of derivative of the spline to compute.
-        """
-
-        # Hack to allow an optional model argument
-        kwargs = self._intercept_optional_inputs(**kwargs)
-
-        return super().__call__(*args, **kwargs)
 
     def _set_spline_fit(self, spline):
         tck = spline._eval_args
