@@ -1770,7 +1770,7 @@ class TestNewSpline1D:
         assert len(spl._coeff_names) == 0
 
     def test___init__with_number_of_knots(self):
-        spl = NewSpline1D(10)
+        spl = NewSpline1D(knots=10)
 
         # Check baseline data
         assert spl._degree == 3
@@ -1923,8 +1923,8 @@ class TestNewSpline1D:
         assert (spl._c[:] == 4).all()
 
     def test_two_splines(self):
-        spl0 = NewSpline1D(10)
-        spl1 = NewSpline1D(15, 2)
+        spl0 = NewSpline1D(knots=10)
+        spl1 = NewSpline1D(knots=15, degree=2)
 
         assert spl0._degree == 3
         assert len(spl0._t) == 18
@@ -2148,7 +2148,7 @@ class TestNewSpline1D:
         assert spl._initialized is False
 
         # with parameters
-        spl = NewSpline1D(10, 2)
+        spl = NewSpline1D(knots=10, degree=2)
         assert spl._initialized is True
 
     def test_tck(self):
@@ -2185,7 +2185,7 @@ class TestNewSpline1D:
         self.check_parameters(spl, spl._coeff_names, "coeff", value1, False)
 
         # with parameters
-        spl = NewSpline1D(10, 2)
+        spl = NewSpline1D(knots=10, degree=2)
         # test get
         t = np.zeros(16)
         t[-3:] = 1
@@ -2259,7 +2259,7 @@ class TestNewSpline1D:
         self.check_parameters(spl, spl._coeff_names, "coeff", value1, False)
 
         # with parameters
-        spl = NewSpline1D(10, 2)
+        spl = NewSpline1D(knots=10, degree=2)
         bspline = spl.bspline
 
         assert isinstance(bspline, BSpline)
