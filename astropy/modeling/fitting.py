@@ -1682,6 +1682,120 @@ class SplineFitter(metaclass=_FitterMeta):
             raise ModelDefinitionError("Only spline models are compatible with this fitter")
 
 
+# TODO: needs to be re-factored for better fit protection.
+class NewSplineFitter(metaclass=_FitterMeta):
+    """
+    Spline Fitter
+    """
+
+    def __init__(self):
+        self.fit_info = {'resid': None,
+                         'fit_spline': None}
+
+    def _set_fit_info(self, spline):
+        self.fit_info['resid'] = spline.get_residual()
+        self.fit_info['fit_spline'] = spline
+
+
+class NewInterpolatingSplineFitter(NewSplineFitter):
+    """Interpolate spline fitter"""
+
+    def __call__(self, model, x, y, weights=None, bbox=[None, None]):
+        new_model = model.copy()
+
+        spline = new_model.interpolate_data(x, y, w=weights, bbox=bbox)
+        self._set_fit_info(spline)
+
+        return new_model
+
+
+class NewSmoothingSplineFitter(NewSplineFitter):
+    """Smoothing spline fitter"""
+
+    def __call__(self, model, x, y, s=None, weights=None, bbox=[None, None]):
+        new_model = model.copy()
+
+        spline = new_model.smoothing_fit(x, y, s=None, w=weights, bbox=bbox)
+        self._set_fit_info(spline)
+
+        return new_model
+
+
+class NewLSQSplineFitter(NewSplineFitter):
+    """LSQ spline fitter"""
+
+    def __call__(self, model, x, y, t=None, weights=None, bbox=[None, None]):
+        new_model = model.copy()
+
+        spline = new_model.lsq_fit(x, y, t=t, w=weights, bbox=bbox)
+        self._set_fit_info(spline)
+
+        return new_model
+
+
+class ChiSqOutlierRejectionFitter:
+    """Chi squared statistic for outlier rejection"""
+
+    def __init__(self, fitter, domain=None, tolerance=0.0001):
+        self.fitter = fitter
+        self.tolerance = tolerance
+
+        if domain is None:
+            self.domain = 10
+        else:
+            self.domain = domain
+
+    @staticmethod
+    def kernel(x):
+        """
+        Weighting function depdenent only on provided value (usualy a residual)
+        """
+        return (np.where(x**2 <= 1, 1 - x**2, 0.))**2
+
+    @staticmethod
+    def _chi(model, x, y, weights):
+        return np.sum(weights * (y - model(x))**2)
+
+    def __call__(self, model, x, y, weights=None, **kwargs):
+        # Assume equal weights if none are provided
+        if weights is None:
+            weights = np.ones(x.shape)
+
+        new_model = model.copy()
+
+        # perform the initial fit
+        new_model = self.fitter(new_model, x, y, weights=weights, **kwargs)
+        fitval = new_model(x)
+
+        chi = np.sum(weights * (y - fitval)**2)
+
+        # calculate degrees of freedom
+        nparams = len(_model_to_fit_params(new_model)[0])
+        deg_of_freedom = np.sum(weights) - nparams
+
+        # Iteratively adjust the weights until fit converges
+        for idx in range(1000 * nparams):
+            scale = np.sqrt(chi / deg_of_freedom)
+
+            # Calculate new weights
+            resid = (y - new_model(x)) / (scale * self.domain)
+            new_w = self.kernel(resid) * weights
+
+            # Fit new model and find chi
+            new_model = self.fitter(new_model, x, y, weights=new_w, **kwargs)
+            new_chi = self._chi(new_model, x, y, new_w)
+
+            # Check if fit has converged
+            tol = self.tolerance if new_chi < 1 else self.tolerance * new_chi
+            if np.abs(chi - new_chi) < tol:
+                break
+            chi = new_chi
+        else:
+            raise RuntimeError("Bad fit, method should have converged")
+
+        return new_model
+
+
 # TODO: These utility functions are really particular to handling
 # bounds/tied/fixed constraints for scipy.optimize optimizers that do not
 # support them inherently; this needs to be reworked to be clear about this
