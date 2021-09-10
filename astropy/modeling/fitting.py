@@ -1746,40 +1746,55 @@ class ChiSqOutlierRejectionFitter:
             self.domain = domain
 
     @staticmethod
-    def kernel(x):
+    def kernel(x, weights=None):
         """
         Weighting function depdenent only on provided value (usualy a residual)
         """
-        return (np.where(x**2 <= 1, 1 - x**2, 0.))**2
+
+        kernal = (np.where(x**2 <= 1, 1 - x**2, 0.))**2
+        if weights is not None:
+            kernal *= weights
+
+        return kernal
 
     @staticmethod
-    def _chi(model, x, y, weights):
-        return np.sum(weights * (y - model(x))**2)
+    def _chi(model, x, y, weights=None):
+
+        resid = (y - model(x))**2
+        if weights is not None:
+            resid *= weights
+
+        return np.sum(resid)
+
+    @staticmethod
+    def _deg_of_freedom(nparams, x, weights=None):
+        if weights is None:
+            sum_weights = len(x)
+        else:
+            sum_weights = np.sum(weights)
+
+        return sum_weights - nparams
 
     def __call__(self, model, x, y, weights=None, **kwargs):
         # Assume equal weights if none are provided
-        if weights is None:
-            weights = np.ones(x.shape)
 
         new_model = model.copy()
 
         # perform the initial fit
         new_model = self.fitter(new_model, x, y, weights=weights, **kwargs)
-        fitval = new_model(x)
-
-        chi = np.sum(weights * (y - fitval)**2)
+        chi = self._chi(new_model, x, y, weights)
 
         # calculate degrees of freedom
         nparams = len(_model_to_fit_params(new_model)[0])
-        deg_of_freedom = np.sum(weights) - nparams
+        deg_of_freedom = self._deg_of_freedom(nparams, x, weights)
 
         # Iteratively adjust the weights until fit converges
-        for idx in range(1000 * nparams):
+        for _ in range(1000 * nparams):
             scale = np.sqrt(chi / deg_of_freedom)
 
             # Calculate new weights
             resid = (y - new_model(x)) / (scale * self.domain)
-            new_w = self.kernel(resid) * weights
+            new_w = self.kernel(resid, weights)
 
             # Fit new model and find chi
             new_model = self.fitter(new_model, x, y, weights=new_w, **kwargs)
