@@ -17,6 +17,7 @@ __all__ = ['AiryDisk2D', 'Moffat1D', 'Moffat2D', 'Box1D', 'Box2D', 'Const1D',
            'Linear1D', 'Lorentz1D', 'RickerWavelet1D', 'RickerWavelet2D',
            'RedshiftScaleFactor', 'Multiply', 'Planar2D', 'Scale',
            'Sersic1D', 'Sersic2D', 'Shift', 'Sine1D', 'Cosine1D', 'Tangent1D',
+           'ArcSine1D',
            'Trapezoid1D', 'TrapezoidDisk2D', 'Ring2D', 'Voigt1D',
            'KingProjectedAnalytic1D', 'Exponential1D', 'Logarithmic1D']
 
@@ -764,7 +765,7 @@ class Sersic1D(Fittable1DModel):
 
 class _Trigonometric1D(Fittable1DModel):
     """
-    Base class for one dimensional Sine and Cosine models
+    Base class for one dimensional trigonometric and inverse trigonometric models
 
     Parameters
     ----------
@@ -1002,6 +1003,88 @@ class Tangent1D(_Trigonometric1D):
         d_frequency = TWOPI * x * amplitude * sec
         d_phase = TWOPI * amplitude * sec
         return [d_amplitude, d_frequency, d_phase]
+
+
+class ArcSine1D(_Trigonometric1D):
+    """
+    One dimensional ArcSine model.
+
+    Parameters
+    ----------
+    amplitude : float
+        Oscillation amplitude for corresponding Sine
+    frequency : float
+        Oscillation frequency for corresponding Sine
+    phase : float
+        Oscillation phase for corresponding Sine
+
+    See Also
+    --------
+    Cosine1D, Tangent1D, Const1D, Linear1D
+
+
+    Notes
+    -----
+    Model formula:
+
+        .. math:: f(x) = ((arcsin(x / A) / 2pi) - p) / f
+
+    Examples
+    --------
+    .. plot::
+        :include-source:
+
+        import numpy as np
+        import matplotlib.pyplot as plt
+
+        from astropy.modeling.models import ArcSine1D
+
+        plt.figure()
+        s1 = ArcSine1D(amplitude=1, frequency=.25)
+        r=np.arange(-1, 1, .01)
+
+        for amplitude in range(1,4):
+             s1.amplitude = amplitude
+             plt.plot(r, s1(r), color=str(0.25 * amplitude), lw=2)
+
+        plt.axis([-1, 1, -np.pi/2, np.pi/2])
+        plt.show()
+    """
+
+    @staticmethod
+    def evaluate(x, amplitude, frequency, phase):
+        """One dimensional ArcSine model function"""
+        # Note: If frequency and x are quantities, they should normally have
+        # inverse units, so that argument ends up being dimensionless. However,
+        # np.sin of a dimensionless quantity will crash, so we remove the
+        # quantity-ness from argument in this case (another option would be to
+        # multiply by * u.rad but this would be slower overall).
+
+        argument = x / amplitude
+        if isinstance(argument, Quantity):
+            argument = argument.value
+        arc_sine = np.arcsin(argument) / TWOPI
+
+        return (arc_sine - phase) / frequency
+
+    @staticmethod
+    def fit_deriv(x, amplitude, frequency, phase):
+        """One dimensional ArcSine model derivative"""
+
+        d_amplitude = - x / (TWOPI * frequency * amplitude**2 * np.sqrt(1 - (x / amplitude)**2))
+        d_frequency = (phase - (np.arcsin(x / amplitude) / TWOPI)) / frequency**2
+        d_phase = - 1 / frequency * np.ones(x.shape)
+        return [d_amplitude, d_frequency, d_phase]
+
+    @property
+    def input_units(self):
+        if self.amplitude.unit is None:
+            return None
+        return {self.inputs[0]: self.amplitude.unit}
+
+    def _parameter_units_for_data_units(self, inputs_unit, outputs_unit):
+        return {'frequency': outputs_unit[self.outputs[0]] ** -1,
+                'amplitude': inputs_unit[self.inputs[0]]}
 
 
 class Linear1D(Fittable1DModel):
