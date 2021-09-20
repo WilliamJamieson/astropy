@@ -863,6 +863,12 @@ class Sine1D(_Trigonometric1D):
                    np.cos(TWOPI * frequency * x + TWOPI * phase))
         return [d_amplitude, d_frequency, d_phase]
 
+    @property
+    def inverse(self):
+        """One dimensional inverse of Sine"""
+
+        return ArcSine1D(amplitude=self.amplitude, frequency=self.frequency, phase=self.phase)
+
 
 class Cosine1D(_Trigonometric1D):
     """
@@ -934,6 +940,12 @@ class Cosine1D(_Trigonometric1D):
                      np.sin(TWOPI * frequency * x + TWOPI * phase))
         return [d_amplitude, d_frequency, d_phase]
 
+    @property
+    def inverse(self):
+        """One dimensional inverse of Cosine"""
+
+        return ArcCosine1D(amplitude=self.amplitude, frequency=self.frequency, phase=self.phase)
+
 
 class Tangent1D(_Trigonometric1D):
     """
@@ -1004,6 +1016,12 @@ class Tangent1D(_Trigonometric1D):
         d_frequency = TWOPI * x * amplitude * sec
         d_phase = TWOPI * amplitude * sec
         return [d_amplitude, d_frequency, d_phase]
+
+    @property
+    def inverse(self):
+        """One dimensional inverse of Cosine"""
+
+        return ArcTangent1D(amplitude=self.amplitude, frequency=self.frequency, phase=self.phase)
 
 
 class _InverseTrigonometric1D(_Trigonometric1D):
@@ -1161,7 +1179,7 @@ class ArcCosine1D(_InverseTrigonometric1D):
         """One dimensional ArcCosine model derivative"""
 
         d_amplitude = x / (TWOPI * frequency * amplitude**2 * np.sqrt(1 - (x / amplitude)**2))
-        d_frequency = (phase - (np.arcsin(x / amplitude) / TWOPI)) / frequency**2
+        d_frequency = (phase - (np.arccos(x / amplitude) / TWOPI)) / frequency**2
         d_phase = - 1 / frequency * np.ones(x.shape)
         return [d_amplitude, d_frequency, d_phase]
 

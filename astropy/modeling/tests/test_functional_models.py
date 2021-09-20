@@ -346,3 +346,27 @@ def test_ExponentialAndLogarithmic1D_fit():
     log_model = models.Logarithmic1D(amplitude=1, tau=1)
     assert_allclose(xarr, em_model.inverse(em_model(xarr)))
     assert_allclose(xarr, log_model.inverse(log_model(xarr)))
+
+
+def test_Sine1D_inverse():
+    mdl = models.Sine1D()
+
+    x = np.arange(-0.25, 0.25, 0.01)
+    assert_allclose(mdl.inverse(mdl(x)), x, atol=1e-10)
+    assert_allclose(mdl(mdl.inverse(x)), x, atol=1e-10)
+
+
+def test_Cosine1D_inverse():
+    mdl = models.Cosine1D()
+
+    x = np.arange(0, 0.5, 0.01)
+    assert_allclose(mdl.inverse(mdl(x)), x, atol=1e-10)
+    assert_allclose(mdl(mdl.inverse(x)), x, atol=1e-10)
+
+
+def test_Tangent1D_inverse():
+    mdl = models.Tangent1D()
+
+    x = np.arange(-0.25, 0.25, 0.01)
+    assert_allclose(mdl.inverse(mdl(x)), x, atol=1e-10)
+    assert_allclose(mdl(mdl.inverse(x)), x, atol=1e-10)
