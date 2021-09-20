@@ -58,7 +58,7 @@ MODELS_WITH_CONSTRAINTS = [
     Gaussian1D, Gaussian2D,
     Linear1D, Lorentz1D, RickerWavelet1D, RickerWavelet2D,
     PowerLaw1D, Sersic1D, Sersic2D,
-    Sine1D, Cosine1D, Tangent1D, ArcSine1D, ArcCosine1D,
+    Sine1D, Cosine1D, Tangent1D, ArcSine1D, ArcCosine1D, ArcTangent1D,
     Trapezoid1D, TrapezoidDisk2D,
     Chebyshev1D, Chebyshev2D, Hermite1D, Hermite2D, Legendre2D, Legendre1D,
     Polynomial1D, Polynomial2D, Voigt1D, KingProjectedAnalytic1D,

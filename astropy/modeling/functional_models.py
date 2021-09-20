@@ -18,7 +18,7 @@ __all__ = ['AiryDisk2D', 'Moffat1D', 'Moffat2D', 'Box1D', 'Box2D', 'Const1D',
            'RedshiftScaleFactor', 'Multiply', 'Planar2D', 'Scale',
            'Sersic1D', 'Sersic2D', 'Shift',
            'Sine1D', 'Cosine1D', 'Tangent1D',
-           'ArcSine1D', 'ArcCosine1D',
+           'ArcSine1D', 'ArcCosine1D', 'ArcTangent1D',
            'Trapezoid1D', 'TrapezoidDisk2D', 'Ring2D', 'Voigt1D',
            'KingProjectedAnalytic1D', 'Exponential1D', 'Logarithmic1D']
 
@@ -1037,7 +1037,7 @@ class ArcSine1D(_InverseTrigonometric1D):
 
     See Also
     --------
-    Cosine1D, Tangent1D, Const1D, Linear1D
+    Sine1D, ArcCosine1D, ArcTangent1D
 
 
     Notes
@@ -1109,7 +1109,7 @@ class ArcCosine1D(_InverseTrigonometric1D):
 
     See Also
     --------
-    Cosine1D, Tangent1D, Const1D, Linear1D
+    Cosine1D, ArcSine1D, ArcTangent1D
 
 
     Notes
@@ -1162,6 +1162,78 @@ class ArcCosine1D(_InverseTrigonometric1D):
 
         d_amplitude = x / (TWOPI * frequency * amplitude**2 * np.sqrt(1 - (x / amplitude)**2))
         d_frequency = (phase - (np.arcsin(x / amplitude) / TWOPI)) / frequency**2
+        d_phase = - 1 / frequency * np.ones(x.shape)
+        return [d_amplitude, d_frequency, d_phase]
+
+
+class ArcTangent1D(_InverseTrigonometric1D):
+    """
+    One dimensional ArcTangent
+
+    Parameters
+    ----------
+    amplitude : float
+        Oscillation amplitude for corresponding Tangent
+    frequency : float
+        Oscillation frequency for corresponding Tangent
+    phase : float
+        Oscillation phase for corresponding Tangent
+
+    See Also
+    --------
+    Tangent1D, ArcSine1D, ArcCosine1D
+
+
+    Notes
+    -----
+    Model formula:
+
+        .. math:: f(x) = ((arctan(x / A) / 2pi) - p) / f
+
+    Examples
+    --------
+    .. plot::
+        :include-source:
+
+        import numpy as np
+        import matplotlib.pyplot as plt
+
+        from astropy.modeling.models import ArcTangent1D
+
+        plt.figure()
+        s1 = ArcTangent1D(amplitude=1, frequency=.25)
+        r=np.arange(-10, 10, .01)
+
+        for amplitude in range(1,4):
+             s1.amplitude = amplitude
+             plt.plot(r, s1(r), color=str(0.25 * amplitude), lw=2)
+
+        plt.axis([-10, 10, -np.pi/2, np.pi/2])
+        plt.show()
+    """
+
+    @staticmethod
+    def evaluate(x, amplitude, frequency, phase):
+        """One dimensional ArcCosine model function"""
+        # Note: If frequency and x are quantities, they should normally have
+        # inverse units, so that argument ends up being dimensionless. However,
+        # np.sin of a dimensionless quantity will crash, so we remove the
+        # quantity-ness from argument in this case (another option would be to
+        # multiply by * u.rad but this would be slower overall).
+
+        argument = x / amplitude
+        if isinstance(argument, Quantity):
+            argument = argument.value
+        arc_cos = np.arctan(argument) / TWOPI
+
+        return (arc_cos - phase) / frequency
+
+    @staticmethod
+    def fit_deriv(x, amplitude, frequency, phase):
+        """One dimensional ArcCosine model derivative"""
+
+        d_amplitude = - x / (TWOPI * frequency * amplitude**2 * (1 + (x / amplitude)**2))
+        d_frequency = (phase - (np.arctan(x / amplitude) / TWOPI)) / frequency**2
         d_phase = - 1 / frequency * np.ones(x.shape)
         return [d_amplitude, d_frequency, d_phase]
 

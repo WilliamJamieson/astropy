@@ -10,7 +10,7 @@ from astropy.utils.compat.optional_deps import HAS_SCIPY  # noqa
 
 from astropy.modeling.functional_models import (
     Gaussian1D, Sersic1D,
-    Sine1D, Cosine1D, Tangent1D, ArcSine1D, ArcCosine1D,
+    Sine1D, Cosine1D, Tangent1D, ArcSine1D, ArcCosine1D, ArcTangent1D,
     Linear1D, Lorentz1D, Voigt1D, Const1D,
     Box1D, Trapezoid1D, RickerWavelet1D,
     Moffat1D, Gaussian2D, Const2D, Ellipse2D,
@@ -56,6 +56,10 @@ FUNC_MODELS_1D = [
 {'class': ArcCosine1D,
  'parameters': {'amplitude': 3 * u.km / u.s, 'frequency': 0.25 * u.Hz, 'phase': 0.5},
  'evaluation': [(0 * u.km / u.s, -1 * u.s)],
+ 'bounding_box': False},
+{'class': ArcTangent1D,
+ 'parameters': {'amplitude': 3 * u.km / u.s, 'frequency': 0.125 * u.Hz, 'phase': 0.25},
+ 'evaluation': [(0 * u.km / u.s, -2 * u.s)],
  'bounding_box': False},
 {'class': Linear1D,
  'parameters': {'slope': 3 * u.km / u.s, 'intercept': 5000 * u.m},
