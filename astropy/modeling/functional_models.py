@@ -1285,7 +1285,6 @@ class ArcTangent1D(_InverseTrigonometric1D):
         return [d_amplitude, d_frequency, d_phase]
 
 
-
 class Linear1D(Fittable1DModel):
     """
     One dimensional Line model.
