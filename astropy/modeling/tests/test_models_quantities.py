@@ -48,15 +48,15 @@ FUNC_MODELS_1D = [
 {'class': Tangent1D,
  'parameters': {'amplitude': 3 * u.km / u.s, 'frequency': 0.125 * u.Hz, 'phase': 0.25},
  'evaluation': [(1 * u.s, -3 * u.km / u.s)],
- 'bounding_box': False},
+ 'bounding_box': [-4, 0] / u.Hz},
 {'class': ArcSine1D,
  'parameters': {'amplitude': 3 * u.km / u.s, 'frequency': 0.25 * u.Hz, 'phase': 0.5},
  'evaluation': [(0 * u.km / u.s, -2 * u.s)],
- 'bounding_box': False},
+ 'bounding_box': [-3, 3] * u.km / u.s},
 {'class': ArcCosine1D,
  'parameters': {'amplitude': 3 * u.km / u.s, 'frequency': 0.25 * u.Hz, 'phase': 0.5},
  'evaluation': [(0 * u.km / u.s, -1 * u.s)],
- 'bounding_box': False},
+ 'bounding_box': [-3, 3] * u.km / u.s},
 {'class': ArcTangent1D,
  'parameters': {'amplitude': 3 * u.km / u.s, 'frequency': 0.125 * u.Hz, 'phase': 0.25},
  'evaluation': [(0 * u.km / u.s, -2 * u.s)],
@@ -327,6 +327,7 @@ def test_models_bounding_box(model):
         # values one by one.
         for i in range(len(model['bounding_box'])):
             bbox = m.bounding_box
+            print(bbox)
             assert_quantity_allclose(bbox[i], model['bounding_box'][i])
 
 

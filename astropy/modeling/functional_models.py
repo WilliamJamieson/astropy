@@ -1023,6 +1023,19 @@ class Tangent1D(_Trigonometric1D):
 
         return ArcTangent1D(amplitude=self.amplitude, frequency=self.frequency, phase=self.phase)
 
+    def bounding_box(self):
+        """
+        Tuple defining the default ``bounding_box`` limits,
+        ``(x_low, x_high)``
+        """
+
+        bbox = [(-1/4 - self.phase) / self.frequency, (1/4 - self.phase) / self.frequency]
+
+        if self.frequency.unit is not None:
+            bbox = bbox / self.frequency.unit
+
+        return bbox
+
 
 class _InverseTrigonometric1D(_Trigonometric1D):
     """
@@ -1111,6 +1124,14 @@ class ArcSine1D(_InverseTrigonometric1D):
         d_phase = - 1 / frequency * np.ones(x.shape)
         return [d_amplitude, d_frequency, d_phase]
 
+    def bounding_box(self):
+        """
+        Tuple defining the default ``bounding_box`` limits,
+        ``(x_low, x_high)``
+        """
+
+        return -1 * self.amplitude, 1 * self.amplitude
+
 
 class ArcCosine1D(_InverseTrigonometric1D):
     """
@@ -1182,6 +1203,14 @@ class ArcCosine1D(_InverseTrigonometric1D):
         d_frequency = (phase - (np.arccos(x / amplitude) / TWOPI)) / frequency**2
         d_phase = - 1 / frequency * np.ones(x.shape)
         return [d_amplitude, d_frequency, d_phase]
+
+    def bounding_box(self):
+        """
+        Tuple defining the default ``bounding_box`` limits,
+        ``(x_low, x_high)``
+        """
+
+        return -1 * self.amplitude, 1 * self.amplitude
 
 
 class ArcTangent1D(_InverseTrigonometric1D):
