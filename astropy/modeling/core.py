@@ -38,7 +38,7 @@ from astropy.nddata.utils import add_array, extract_array
 from .utils import (combine_labels, make_binary_operator_eval,
                     get_inputs_and_params, _combine_equivalency_dict,
                     _ConstraintsDict, _SpecialOperatorsDict)
-from .bounding_box import BoundingBox
+from .bounding_box import BoundingDomain, BoundingBox, CompoundBoundingBox
 from .parameters import (Parameter, InputParameterError,
                          param_repr_oneline, _tofloat)
 
@@ -939,6 +939,10 @@ class Model(metaclass=_ModelMeta):
                 bbox = self.bounding_box
             except NotImplementedError:
                 pass
+
+            if isinstance(bbox, CompoundBoundingBox) and not isinstance(with_bbox, bool):
+                bbox = bbox[with_bbox]
+
         return bbox
 
     @property
@@ -1000,7 +1004,11 @@ class Model(metaclass=_ModelMeta):
 
         return input_shape
 
-    def _generic_evaluate(self, evaluate, _inputs, fill_value, with_bbox, with_units):
+    def input_shape(self, inputs):
+        """Get input shape for bounding_box evaluation"""
+        return self._validate_input_shapes(inputs, self._argnames, self.model_set_axis)
+
+    def _generic_evaluate(self, evaluate, _inputs, fill_value, with_bbox):
         """
         Generic model evaluation routine
             Selects and evaluates model with or without bounding_box enforcement
@@ -1010,10 +1018,7 @@ class Model(metaclass=_ModelMeta):
         #   enforcing the bounding_box or not.
         bbox = self.get_bounding_box(with_bbox)
         if with_bbox and bbox is not None:
-            # TODO: this part should move inside bounding_box when compound bounding box is merged.
-            input_shape = self._validate_input_shapes(_inputs, self._argnames, self.model_set_axis)
-
-            outputs = bbox.evaluate(evaluate, input_shape, _inputs, fill_value, with_units)
+            outputs = bbox.evaluate(evaluate, _inputs, fill_value)
         else:
             outputs = evaluate(_inputs)
         return outputs
@@ -1032,6 +1037,10 @@ class Model(metaclass=_ModelMeta):
             return outputs[0]
         return outputs
 
+    @property
+    def bbox_with_units(self):
+        return (not isinstance(self, CompoundModel))
+
     def __call__(self, *args, **kwargs):
         """
         Evaluate this model using the given input(s) and the parameter values
@@ -1047,13 +1056,8 @@ class Model(metaclass=_ModelMeta):
         # prepare for model evaluation (overridden in CompoundModel)
         evaluate, inputs, format_info, kwargs = self._pre_evaluate(*args, **kwargs)
 
-        # NOTE: CompoundModel does not currently support units during
-        #   evaluation for bounding_box so this feature is turned off
-        #   for CompoundModel(s).
-        # TODO: eliminate this in CompoundBoundingBox
         outputs = self._generic_evaluate(evaluate, inputs,
-                                         fill_value, with_bbox,
-                                         (not isinstance(self, CompoundModel)))
+                                         fill_value, with_bbox)
 
         # post-process evaluation results (overridden in CompoundModel)
         return self._post_evaluate(inputs, outputs, format_info, with_bbox, **kwargs)
@@ -1426,6 +1430,9 @@ class Model(metaclass=_ModelMeta):
             # We use this to explicitly set an unimplemented bounding box (as
             # opposed to no user bounding box defined)
             bounding_box = NotImplemented
+        elif (isinstance(bounding_box, CompoundBoundingBox) or
+              isinstance(bounding_box, dict)):
+            cls = CompoundBoundingBox
         elif (isinstance(self._bounding_box, type) and
               issubclass(self._bounding_box, BoundingBox)):
             cls = self._bounding_box
@@ -1439,6 +1446,12 @@ class Model(metaclass=_ModelMeta):
                 raise ValueError(exc.args[0])
 
         self._user_bounding_box = bounding_box
+
+    def set_slice_args(self, *args):
+        if isinstance(self._user_bounding_box, CompoundBoundingBox):
+            self._user_bounding_box.slice_args = args
+        else:
+            raise RuntimeError('The bounding_box for this model is not compound')
 
     @bounding_box.deleter
     def bounding_box(self):
@@ -3154,6 +3167,30 @@ class CompoundModel(Model):
             return outputs[0]
         return outputs
 
+        # Setup actual model evaluation method
+        def evaluate(_inputs):
+            return self._evaluate(*_inputs, **kwargs)
+
+        return evaluate, args, None, kwargs
+
+    @property
+    def _argnames(self):
+        """No inputs should be used to determine input_shape when handling compound models"""
+        return ()
+
+    def _post_evaluate(self, inputs, outputs, format_info, with_bbox, **kwargs):
+        """
+        CompoundModel specific post evaluation processing of outputs
+
+        Note
+        ----
+            All of the _post_evaluate for each component model will be
+            performed at the time that the individual model is evaluated.
+        """
+        if with_bbox and self.n_outputs == 1:
+            return outputs[0]
+        return outputs
+
     def _evaluate(self, *args, **kw):
         op = self.op
         if op != 'fix_inputs':
@@ -3885,7 +3922,7 @@ for idx, ops in enumerate(_ORDER_OF_OPERATORS):
 del idx, op, ops
 
 
-def fix_inputs(modelinstance, values):
+def fix_inputs(modelinstance, values, bounding_boxes=None, slice_args=None):
     """
     This function creates a compound model with one or more of the input
     values of the input model assigned fixed values (scalar or array).
@@ -3909,7 +3946,20 @@ def fix_inputs(modelinstance, values):
 
     Results in a 1D function equivalent to Gaussian2D(1, 2, 3, 4, 5)(x=2.5, y)
     """
-    return CompoundModel('fix_inputs', modelinstance, values)
+    model = CompoundModel('fix_inputs', modelinstance, values)
+    if bounding_boxes is not None:
+        if slice_args is None:
+            slice_args = tuple([(key, True) for key in values.keys()])
+        bbox = CompoundBoundingBox.validate(modelinstance, bounding_boxes, slice_args)
+        _slice = bbox.slice_args.get_fixed_values(values)
+
+        model.bounding_box = bbox[_slice]
+    return model
+
+
+def bind_compound_bounding_box(modelinstance, bounding_boxes, slice_args, create_slice=None):
+    modelinstance.bounding_box = CompoundBoundingBox.validate(modelinstance,
+                                                              bounding_boxes, slice_args, create_slice)
 
 
 def custom_model(*args, fit_deriv=None):
