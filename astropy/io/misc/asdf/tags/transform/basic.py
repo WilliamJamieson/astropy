@@ -39,11 +39,11 @@ class TransformType(AstropyAsdfType):
         if 'bounding_box' in node:
             model.bounding_box = node['bounding_box']
 
-        elif 'slice_args_ignore' in node:
+        elif 'slice_args' in node:
             cbbox_keys = [tuple(key) for key in node['cbbox_keys']]
             bbox_dict = dict(zip(cbbox_keys, node['cbbox_values']))
 
-            slice_args = node['slice_args_ignore']
+            slice_args = node['slice_args']
             model.bounding_box = CompoundBoundingBox.validate(model, bbox_dict, slice_args)
 
         param_and_model_constraints = {}
@@ -94,17 +94,16 @@ class TransformType(AstropyAsdfType):
                 node['bounding_box'] = bb
 
         elif isinstance(bb, CompoundBoundingBox):
-            slice_args_ignore = [[sa.index, sa.ignore] for sa in bb.slice_args]
-            node['slice_args_ignore'] = slice_args_ignore
-
-            node['cbbox_keys'] =list(bb.bounding_boxes.keys())
+            slice_args = [[sa.index, sa.ignore] for sa in bb.slice_args]
+            node['slice_args'] = slice_args
+            node['cbbox_keys'] = list(bb.bounding_boxes.keys())
 
             bounding_boxes = list(bb.bounding_boxes.values())
-
-            if len(model.inputs) - len(slice_args_ignore) == 1: 
+            if len(model.inputs) - len(slice_args) == 1:
                 node['cbbox_values'] = [list(sbbox.bounding_box()) for sbbox in bounding_boxes]
             else:
-                node['cbbox_values'] = [[list(item) for item in sbbox.bounding_box() if np.isfinite(item[0])] for sbbox in bounding_boxes]
+                node['cbbox_values'] = [[list(item) for item in sbbox.bounding_box()
+                                         if np.isfinite(item[0])] for sbbox in bounding_boxes]
 
         # model / parameter constraints
         if not isinstance(model, CompoundModel):
