@@ -8,7 +8,6 @@ from numpy.testing import assert_allclose
 
 from astropy import units as u
 from astropy.modeling import (
-    projections,
     rotations,
     spline,
     tabular,
@@ -19,6 +18,7 @@ from astropy.modeling.models import (
     _physical_models,
     _polynomial,
     _powerlaws,
+    _projections,
     math,
 )
 from astropy.modeling.models._math_functions import ArctanhUfunc
@@ -43,11 +43,11 @@ PROJ_TO_REMOVE = (
         "projcodes",
         "Pix2Sky_ZenithalPerspective",
     ]
-    + [f"Pix2Sky_{code}" for code in projections.projcodes]
-    + [f"Sky2Pix_{code}" for code in projections.projcodes]
+    + [f"Pix2Sky_{code}" for code in _projections.projcodes]
+    + [f"Sky2Pix_{code}" for code in _projections.projcodes]
 )
 
-PROJECTIONS = (func for func in projections.__all__ if func not in PROJ_TO_REMOVE)
+PROJECTIONS = (func for func in _projections.__all__ if func not in PROJ_TO_REMOVE)
 
 OTHER_MODELS = [
     _mappings.Mapping((1, 0)),
@@ -119,7 +119,7 @@ def test_pickle_units_mapping(inputs):
 
 
 def test_pickle_affine_transformation_2D(inputs):
-    m = projections.AffineTransformation2D(matrix=[[1, 1], [1, 1]], translation=[1, 1])
+    m = _projections.AffineTransformation2D(matrix=[[1, 1], [1, 1]], translation=[1, 1])
     m.matrix.fixed = True
     mp = loads(dumps(m))
     assert_allclose(m(*inputs), mp(*inputs))
@@ -180,7 +180,7 @@ def test_pickle_powerlaws(inputs, model):
 
 @pytest.mark.parametrize("model", PROJECTIONS)
 def test_pickle_projections(inputs, model):
-    m = getattr(projections, model)()
+    m = getattr(_projections, model)()
     m1 = loads(dumps(m))
     assert_allclose(m(*inputs), m1(*inputs))
 

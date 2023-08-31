@@ -20,10 +20,9 @@ import numpy as np
 
 from astropy import units as u
 from astropy import wcs
-
-from .core import Model
-from .parameters import InputParameterError, Parameter
-from .utils import _to_orig_unit, _to_radian
+from astropy.modeling.core import Model
+from astropy.modeling.parameters import InputParameterError, Parameter
+from astropy.modeling.utils import _to_orig_unit, _to_radian
 
 # List of tuples of the form
 # (long class name without suffix, short WCSLIB projection code):
