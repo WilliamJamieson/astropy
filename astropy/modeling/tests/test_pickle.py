@@ -8,7 +8,6 @@ from numpy.testing import assert_allclose
 
 from astropy import units as u
 from astropy.modeling import (
-    spline,
     tabular,
 )
 from astropy.modeling.models import (
@@ -19,6 +18,7 @@ from astropy.modeling.models import (
     _powerlaws,
     _projections,
     _rotations,
+    _spline,
     math,
 )
 from astropy.modeling.models._math_functions import ArctanhUfunc
@@ -204,8 +204,8 @@ def test_pickle_spline(inputs):
     x = np.linspace(-3, 3, 50)
     y = func(x, noise)
 
-    fitter = spline.SplineInterpolateFitter()
-    spl = spline.Spline1D(degree=3)
+    fitter = _spline.SplineInterpolateFitter()
+    spl = _spline.Spline1D(degree=3)
     m = fitter(spl, x, y)
 
     mp = loads(dumps(m))

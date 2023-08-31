@@ -14,8 +14,8 @@ from astropy.modeling.fitting import (
     SplineSmoothingFitter,
     SplineSplrepFitter,
 )
+from astropy.modeling.models._spline import Spline1D, _Spline, _SplineFitter
 from astropy.modeling.parameters import Parameter
-from astropy.modeling.spline import Spline1D, _Spline, _SplineFitter
 from astropy.utils.compat.optional_deps import HAS_SCIPY
 from astropy.utils.exceptions import AstropyUserWarning
 

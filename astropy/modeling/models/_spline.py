@@ -9,11 +9,10 @@ import warnings
 
 import numpy as np
 
+from astropy.modeling.core import FittableModel, ModelDefinitionError
+from astropy.modeling.parameters import Parameter
 from astropy.utils import isiterable
 from astropy.utils.exceptions import AstropyUserWarning
-
-from .core import FittableModel, ModelDefinitionError
-from .parameters import Parameter
 
 __all__ = [
     "Spline1D",

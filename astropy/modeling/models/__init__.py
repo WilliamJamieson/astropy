@@ -5,7 +5,6 @@ Creates a common namespace for all pre-defined models.
 """
 
 from astropy.modeling.core import custom_model, fix_inputs, hide_inverse
-from astropy.modeling.spline import *
 from astropy.modeling.tabular import *
 
 from . import _math_functions as math
@@ -16,6 +15,7 @@ from ._polynomial import *
 from ._powerlaws import *
 from ._projections import *
 from ._rotations import *
+from ._spline import *
 
 # Attach a docstring explaining constraints to all models which support them.
 # Note: add new models to this list
