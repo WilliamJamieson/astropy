@@ -20,6 +20,7 @@ from astropy.modeling.models import (
     ArcTangent1D,
     Box1D,
     Box2D,
+    BrokenPowerLaw1D,
     Const1D,
     Const2D,
     Cosine1D,
@@ -27,11 +28,13 @@ from astropy.modeling.models import (
     Drude1D,
     Ellipse2D,
     Exponential1D,
+    ExponentialCutoffPowerLaw1D,
     Gaussian1D,
     Gaussian2D,
     KingProjectedAnalytic1D,
     Linear1D,
     Logarithmic1D,
+    LogParabola1D,
     Lorentz1D,
     Moffat1D,
     Moffat2D,
@@ -40,27 +43,22 @@ from astropy.modeling.models import (
     Plummer1D,
     Polynomial1D,
     Polynomial2D,
+    PowerLaw1D,
     RickerWavelet1D,
     RickerWavelet2D,
     Ring2D,
     Scale,
+    Schechter1D,
     Sersic1D,
     Sersic2D,
     Sine1D,
+    SmoothlyBrokenPowerLaw1D,
     Tangent1D,
     Trapezoid1D,
     TrapezoidDisk2D,
     Voigt1D,
 )
 from astropy.modeling.parameters import InputParameterError
-from astropy.modeling.powerlaws import (
-    BrokenPowerLaw1D,
-    ExponentialCutoffPowerLaw1D,
-    LogParabola1D,
-    PowerLaw1D,
-    Schechter1D,
-    SmoothlyBrokenPowerLaw1D,
-)
 from astropy.tests.helper import assert_quantity_allclose
 from astropy.utils.compat.optional_deps import HAS_SCIPY
 

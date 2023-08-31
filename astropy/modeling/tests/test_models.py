@@ -17,16 +17,16 @@ from astropy import units as u
 from astropy.modeling import fitting, models
 from astropy.modeling.bounding_box import ModelBoundingBox
 from astropy.modeling.core import FittableModel, Model, _ModelMeta
-from astropy.modeling.models import Gaussian2D
-from astropy.modeling.models._polynomial import PolynomialBase
-from astropy.modeling.parameters import InputParameterError, Parameter
-from astropy.modeling.powerlaws import (
+from astropy.modeling.models import (
     BrokenPowerLaw1D,
     ExponentialCutoffPowerLaw1D,
+    Gaussian2D,
     LogParabola1D,
     PowerLaw1D,
     SmoothlyBrokenPowerLaw1D,
 )
+from astropy.modeling.models._polynomial import PolynomialBase
+from astropy.modeling.parameters import InputParameterError, Parameter
 from astropy.modeling.separable import separability_matrix
 from astropy.tests.helper import assert_quantity_allclose
 from astropy.utils import NumpyRNGContext, minversion

@@ -8,7 +8,6 @@ from numpy.testing import assert_allclose
 
 from astropy import units as u
 from astropy.modeling import (
-    powerlaws,
     projections,
     rotations,
     spline,
@@ -19,6 +18,7 @@ from astropy.modeling.models import (
     _mappings,
     _physical_models,
     _polynomial,
+    _powerlaws,
     math,
 )
 from astropy.modeling.models._math_functions import ArctanhUfunc
@@ -168,9 +168,9 @@ def test_pickle_sip(inputs):
     assert_allclose(m(*inputs), m1(*inputs))
 
 
-@pytest.mark.parametrize("model", powerlaws.__all__)
+@pytest.mark.parametrize("model", _powerlaws.__all__)
 def test_pickle_powerlaws(inputs, model):
-    m = getattr(powerlaws, model)()
+    m = getattr(_powerlaws, model)()
     m1 = loads(dumps(m))
     if m.n_inputs == 1:
         assert_allclose(m(inputs[0]), m1(inputs[0]))

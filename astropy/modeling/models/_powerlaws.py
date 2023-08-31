@@ -5,10 +5,9 @@ Power law model variants.
 # pylint: disable=invalid-name
 import numpy as np
 
+from astropy.modeling.core import Fittable1DModel
+from astropy.modeling.parameters import InputParameterError, Parameter
 from astropy.units import Magnitude, Quantity, UnitsError, dimensionless_unscaled, mag
-
-from .core import Fittable1DModel
-from .parameters import InputParameterError, Parameter
 
 __all__ = [
     "PowerLaw1D",
