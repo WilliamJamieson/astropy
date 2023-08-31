@@ -7,9 +7,6 @@ import pytest
 from numpy.testing import assert_allclose
 
 from astropy import units as u
-from astropy.modeling import (
-    tabular,
-)
 from astropy.modeling.models import (
     _functional_models,
     _mappings,
@@ -19,6 +16,7 @@ from astropy.modeling.models import (
     _projections,
     _rotations,
     _spline,
+    _tabular,
     math,
 )
 from astropy.modeling.models._math_functions import ArctanhUfunc
@@ -54,8 +52,8 @@ OTHER_MODELS = [
     _mappings.Identity(2),
     ArctanhUfunc(),
     _rotations.Rotation2D(23),
-    tabular.Tabular1D(lookup_table=[1, 2, 3, 4]),
-    tabular.Tabular2D(lookup_table=[[1, 2, 3, 4], [5, 6, 7, 8]]),
+    _tabular.Tabular1D(lookup_table=[1, 2, 3, 4]),
+    _tabular.Tabular2D(lookup_table=[[1, 2, 3, 4], [5, 6, 7, 8]]),
 ]
 
 POLYNOMIALS_1D = ["Chebyshev1D", "Hermite1D", "Legendre1D", "Polynomial1D"]

@@ -21,8 +21,7 @@ Examples
 import numpy as np
 
 from astropy import units as u
-
-from .core import Model
+from astropy.modeling.core import Model
 
 try:
     from scipy.interpolate import interpn
@@ -312,7 +311,7 @@ def tabular_model(dim, name=None):
 
     >>> tab = tabular_model(2, name='Tabular2D')
     >>> print(tab)
-    <class 'astropy.modeling.tabular.Tabular2D'>
+    <class 'astropy.modeling.models._tabular.Tabular2D'>
     Name: Tabular2D
     N_inputs: 2
     N_outputs: 1
@@ -345,7 +344,7 @@ def tabular_model(dim, name=None):
         name = f"Tabular{model_id}"
 
     model_class = type(str(name), (_Tabular,), members)
-    model_class.__module__ = "astropy.modeling.tabular"
+    model_class.__module__ = __name__
     return model_class
 
 

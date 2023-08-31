@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose, assert_equal
 
-import astropy.modeling.tabular as tabular_models
+import astropy.modeling.models._tabular as tabular_models
 from astropy import units as u
 from astropy.modeling import fitting, models
 from astropy.modeling.bounding_box import ModelBoundingBox
@@ -1035,7 +1035,7 @@ def test_tabular_module_name():
     these classes are created dynamically.
     """
     for model in [models.Tabular1D, models.Tabular2D]:
-        assert model.__module__ == "astropy.modeling.tabular"
+        assert model.__module__ == "astropy.modeling.models._tabular"
 
 
 class classmodel(FittableModel):
