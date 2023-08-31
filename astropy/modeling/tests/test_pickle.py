@@ -10,7 +10,6 @@ from astropy import units as u
 from astropy.modeling import (
     functional_models,
     mappings,
-    math_functions,
     physical_models,
     polynomial,
     powerlaws,
@@ -19,10 +18,11 @@ from astropy.modeling import (
     spline,
     tabular,
 )
-from astropy.modeling.math_functions import ArctanhUfunc
+from astropy.modeling.models import math
+from astropy.modeling.models._math_functions import ArctanhUfunc
 from astropy.utils.compat.optional_deps import HAS_SCIPY
 
-MATH_FUNCTIONS = (func for func in math_functions.__all__ if func != "ArctanhUfunc")
+MATH_FUNCTIONS = (func for func in math.__all__ if func != "ArctanhUfunc")
 
 
 PROJ_TO_REMOVE = (
@@ -92,7 +92,7 @@ def test_pickle_functional(inputs, model):
 
 @pytest.mark.parametrize("model", MATH_FUNCTIONS)
 def test_pickle_math_functions(inputs_math, model):
-    m = getattr(math_functions, model)()
+    m = getattr(math, model)()
     mp = loads(dumps(m))
     if m.n_inputs == 1:
         assert_allclose(m(inputs_math[0]), mp(inputs_math[0]))

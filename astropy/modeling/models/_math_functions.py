@@ -114,7 +114,7 @@ def ufunc_model(name):
     }
 
     klass = type(str(klass_name), (_NPUfuncModel,), members)
-    klass.__module__ = "astropy.modeling.math_functions"
+    klass.__module__ = __name__
     return klass
 
 
