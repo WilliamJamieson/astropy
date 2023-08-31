@@ -28,7 +28,7 @@ def test_sigma_constant():
     it manually in astropy.modeling to avoid importing from
     astropy.stats.
     """
-    from astropy.modeling.functional_models import GAUSSIAN_SIGMA_TO_FWHM
+    from astropy.modeling.models._functional_models import GAUSSIAN_SIGMA_TO_FWHM
     from astropy.stats.funcs import gaussian_sigma_to_fwhm
 
     assert gaussian_sigma_to_fwhm == GAUSSIAN_SIGMA_TO_FWHM

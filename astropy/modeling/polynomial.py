@@ -11,7 +11,7 @@ import numpy as np
 from astropy.utils import check_broadcast, indent
 
 from .core import FittableModel, Model
-from .functional_models import Shift
+from .models._functional_models import Shift
 from .parameters import Parameter
 from .utils import _validate_domain_window, poly_map_domain
 

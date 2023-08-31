@@ -13,7 +13,7 @@ from astropy.modeling.fitting import (
     LMLSQFitter,
     TRFLSQFitter,
 )
-from astropy.modeling.functional_models import (
+from astropy.modeling.models import (
     AiryDisk2D,
     ArcCosine1D,
     ArcSine1D,

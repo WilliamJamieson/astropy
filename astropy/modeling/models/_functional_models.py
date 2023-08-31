@@ -7,13 +7,12 @@ import warnings
 import numpy as np
 
 from astropy import units as u
+from astropy.modeling.core import Fittable1DModel, Fittable2DModel
+from astropy.modeling.parameters import InputParameterError, Parameter
+from astropy.modeling.utils import ellipse_extent
 from astropy.units import Quantity, UnitsError
 from astropy.utils.compat.optional_deps import HAS_SCIPY
 from astropy.utils.exceptions import AstropyDeprecationWarning
-
-from .core import Fittable1DModel, Fittable2DModel
-from .parameters import InputParameterError, Parameter
-from .utils import ellipse_extent
 
 __all__ = [
     "AiryDisk2D",

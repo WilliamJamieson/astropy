@@ -8,7 +8,6 @@ from numpy.testing import assert_allclose
 
 from astropy import units as u
 from astropy.modeling import (
-    functional_models,
     mappings,
     physical_models,
     polynomial,
@@ -18,7 +17,7 @@ from astropy.modeling import (
     spline,
     tabular,
 )
-from astropy.modeling.models import math
+from astropy.modeling.models import _functional_models, math
 from astropy.modeling.models._math_functions import ArctanhUfunc
 from astropy.utils.compat.optional_deps import HAS_SCIPY
 
@@ -80,9 +79,9 @@ def inputs_math():
 
 
 @pytest.mark.skipif(not HAS_SCIPY, reason="requires scipy")
-@pytest.mark.parametrize("model", functional_models.__all__)
+@pytest.mark.parametrize("model", _functional_models.__all__)
 def test_pickle_functional(inputs, model):
-    m = getattr(functional_models, model)()
+    m = getattr(_functional_models, model)()
     mp = loads(dumps(m))
     if m.n_inputs == 1:
         assert_allclose(m(inputs[0]), mp(inputs[0]))
