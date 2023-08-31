@@ -18,7 +18,7 @@ returns an array of shape (``n_outputs``, ``n_inputs``).
 import numpy as np
 
 from .core import CompoundModel, Model, ModelDefinitionError
-from .mappings import Mapping
+from .models import Mapping
 
 __all__ = ["is_separable", "separability_matrix"]
 

@@ -14,8 +14,7 @@ from numpy.testing import assert_allclose
 from astropy import conf, wcs
 from astropy.io import fits
 from astropy.modeling import fitting
-from astropy.modeling.mappings import Identity
-from astropy.modeling.models import Linear1D
+from astropy.modeling.models import Identity, Linear1D
 from astropy.modeling.polynomial import (
     SIP,
     Chebyshev1D,

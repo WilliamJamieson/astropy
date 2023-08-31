@@ -2351,7 +2351,7 @@ class Model(metaclass=_ModelMeta):
         >>> model(10)  # doctest: +FLOAT_CMP
         <Quantity 21. s>
         """
-        from .mappings import UnitsMapping
+        from .models import UnitsMapping
 
         result = self
 

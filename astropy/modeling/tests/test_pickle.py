@@ -8,7 +8,6 @@ from numpy.testing import assert_allclose
 
 from astropy import units as u
 from astropy.modeling import (
-    mappings,
     physical_models,
     polynomial,
     powerlaws,
@@ -17,7 +16,7 @@ from astropy.modeling import (
     spline,
     tabular,
 )
-from astropy.modeling.models import _functional_models, math
+from astropy.modeling.models import _functional_models, _mappings, math
 from astropy.modeling.models._math_functions import ArctanhUfunc
 from astropy.utils.compat.optional_deps import HAS_SCIPY
 
@@ -47,8 +46,8 @@ PROJ_TO_REMOVE = (
 PROJECTIONS = (func for func in projections.__all__ if func not in PROJ_TO_REMOVE)
 
 OTHER_MODELS = [
-    mappings.Mapping((1, 0)),
-    mappings.Identity(2),
+    _mappings.Mapping((1, 0)),
+    _mappings.Identity(2),
     ArctanhUfunc(),
     rotations.Rotation2D(23),
     tabular.Tabular1D(lookup_table=[1, 2, 3, 4]),
@@ -110,7 +109,7 @@ def test_pickle_other(inputs, m):
 
 
 def test_pickle_units_mapping(inputs):
-    m = mappings.UnitsMapping(((u.m, None),))
+    m = _mappings.UnitsMapping(((u.m, None),))
     mp = loads(dumps(m))
     assert_allclose(m(inputs[0] * u.km), mp(inputs[0] * u.km))
 

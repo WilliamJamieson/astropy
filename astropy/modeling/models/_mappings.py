@@ -4,9 +4,8 @@ which outputs from a source model are mapped to which inputs of a target model.
 """
 # pylint: disable=invalid-name
 
+from astropy.modeling.core import FittableModel, Model
 from astropy.units import Quantity
-
-from .core import FittableModel, Model
 
 __all__ = ["Mapping", "Identity", "UnitsMapping"]
 
