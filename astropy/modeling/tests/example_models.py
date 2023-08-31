@@ -75,6 +75,8 @@ from astropy.modeling.models import (
     Moffat2D,
     Planar2D,
     Plummer1D,
+    Polynomial1D,
+    Polynomial2D,
     RickerWavelet1D,
     RickerWavelet2D,
     Ring2D,
@@ -86,7 +88,6 @@ from astropy.modeling.models import (
     TrapezoidDisk2D,
     Voigt1D,
 )
-from astropy.modeling.polynomial import Polynomial1D, Polynomial2D
 from astropy.modeling.powerlaws import (
     BrokenPowerLaw1D,
     ExponentialCutoffPowerLaw1D,

@@ -8,7 +8,6 @@ from numpy.testing import assert_allclose
 
 from astropy import units as u
 from astropy.modeling import (
-    polynomial,
     powerlaws,
     projections,
     rotations,
@@ -19,6 +18,7 @@ from astropy.modeling.models import (
     _functional_models,
     _mappings,
     _physical_models,
+    _polynomial,
     math,
 )
 from astropy.modeling.models._math_functions import ArctanhUfunc
@@ -138,7 +138,7 @@ def test_pickle_physical_models(inputs, model):
 
 @pytest.mark.parametrize("model", POLYNOMIALS_1D)
 def test_pickle_1D_polynomials(inputs, model):
-    m = getattr(polynomial, model)
+    m = getattr(_polynomial, model)
     m = m(2)
     m1 = loads(dumps(m))
     assert_allclose(m(inputs[1]), m1(inputs[0]))
@@ -146,7 +146,7 @@ def test_pickle_1D_polynomials(inputs, model):
 
 @pytest.mark.parametrize("model", POLYNOMIALS_2D)
 def test_pickle_2D_polynomials(inputs, model):
-    m = getattr(polynomial, model)
+    m = getattr(_polynomial, model)
     m = m(2, 3)
     m1 = loads(dumps(m))
     assert_allclose(m(*inputs), m1(*inputs))
@@ -155,14 +155,14 @@ def test_pickle_2D_polynomials(inputs, model):
 def test_pickle_polynomial_2D(inputs):
     # Polynomial2D is initialized with 1 degree but
     # requires 2 inputs
-    m = polynomial.Polynomial2D
+    m = _polynomial.Polynomial2D
     m = m(2)
     m1 = loads(dumps(m))
     assert_allclose(m(*inputs), m1(*inputs))
 
 
 def test_pickle_sip(inputs):
-    m = polynomial.SIP
+    m = _polynomial.SIP
     m = m((21, 23), 2, 3)
     m1 = loads(dumps(m))
     assert_allclose(m(*inputs), m1(*inputs))

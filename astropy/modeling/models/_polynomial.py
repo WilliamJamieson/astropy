@@ -8,12 +8,12 @@ from math import comb
 
 import numpy as np
 
+from astropy.modeling.core import FittableModel, Model
+from astropy.modeling.parameters import Parameter
+from astropy.modeling.utils import _validate_domain_window, poly_map_domain
 from astropy.utils import check_broadcast, indent
 
-from .core import FittableModel, Model
-from .models._functional_models import Shift
-from .parameters import Parameter
-from .utils import _validate_domain_window, poly_map_domain
+from ._functional_models import Shift
 
 __all__ = [
     "Chebyshev1D",

@@ -38,6 +38,8 @@ from astropy.modeling.models import (
     Multiply,
     Planar2D,
     Plummer1D,
+    Polynomial1D,
+    Polynomial2D,
     RickerWavelet1D,
     RickerWavelet2D,
     Ring2D,
@@ -51,7 +53,6 @@ from astropy.modeling.models import (
     Voigt1D,
 )
 from astropy.modeling.parameters import InputParameterError
-from astropy.modeling.polynomial import Polynomial1D, Polynomial2D
 from astropy.modeling.powerlaws import (
     BrokenPowerLaw1D,
     ExponentialCutoffPowerLaw1D,

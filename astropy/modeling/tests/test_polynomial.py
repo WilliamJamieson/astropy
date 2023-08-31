@@ -15,7 +15,7 @@ from astropy import conf, wcs
 from astropy.io import fits
 from astropy.modeling import fitting
 from astropy.modeling.models import Identity, Linear1D
-from astropy.modeling.polynomial import (
+from astropy.modeling.models._polynomial import (
     SIP,
     Chebyshev1D,
     Chebyshev2D,

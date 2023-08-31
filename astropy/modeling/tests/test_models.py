@@ -18,8 +18,8 @@ from astropy.modeling import fitting, models
 from astropy.modeling.bounding_box import ModelBoundingBox
 from astropy.modeling.core import FittableModel, Model, _ModelMeta
 from astropy.modeling.models import Gaussian2D
+from astropy.modeling.models._polynomial import PolynomialBase
 from astropy.modeling.parameters import InputParameterError, Parameter
-from astropy.modeling.polynomial import PolynomialBase
 from astropy.modeling.powerlaws import (
     BrokenPowerLaw1D,
     ExponentialCutoffPowerLaw1D,
