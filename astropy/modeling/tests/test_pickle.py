@@ -80,7 +80,9 @@ def inputs_math():
 
 
 @pytest.mark.skipif(not HAS_SCIPY, reason="requires scipy")
-@pytest.mark.parametrize("model", _functional_models.__all__)
+@pytest.mark.parametrize(
+    "model", (mdl for mdl in _functional_models.__all__ if mdl != "FLOAT_EPSILON")
+)
 def test_pickle_functional(inputs, model):
     m = getattr(_functional_models, model)()
     mp = loads(dumps(m))

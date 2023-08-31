@@ -13,6 +13,7 @@ import numpy as np
 
 from astropy import units as u
 from astropy.utils.decorators import deprecated
+from astropy.utils.exceptions import AstropyDeprecationWarning
 
 __all__ = ["poly_map_domain", "comb", "ellipse_extent"]
 
@@ -335,3 +336,29 @@ class _SpecialOperatorsDict(UserDict):
         self._set_value(key, operator)
 
         return key
+
+
+def _module_deprecation_warn(module_name, attr_=None):
+    if attr_ is None:
+        msg = f"{module_name} is deprecated. Please see astropy.modeling.models"
+    else:
+        msg = f"Importing {attr_} from {module_name} is deprecated. Please see astropy.modeling.models"
+
+    warnings.warn(msg, AstropyDeprecationWarning, stacklevel=2)
+
+
+def _module_deprecation_getattr(module, module_name):
+    def getattr_(name):
+        _module_deprecation_warn(module_name, name)
+        return getattr(module, name)
+
+    return getattr_
+
+
+def _module_deprecation(module, module_name):
+    _module_deprecation_warn(module_name)
+
+    all_ = module.__all__
+    getattr_ = _module_deprecation_getattr(module, module_name)
+
+    return all_, getattr_
