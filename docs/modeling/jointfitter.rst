@@ -36,7 +36,7 @@ First, imports needed for this example
    >>> import numpy as np
    >>> from astropy.modeling import fitting, Fittable1DModel
    >>> from astropy.modeling.parameters import Parameter
-   >>> from astropy.modeling.functional_models import FLOAT_EPSILON
+   >>> from astropy.modeling.models import FLOAT_EPSILON
 
 Now define AreaGaussian1D with area instead of intensity as a parameter.
 This new is modified and trimmed version of the standard Gaussian1D model.

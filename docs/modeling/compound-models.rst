@@ -148,7 +148,7 @@ few terms where there have been points of confusion:
 
       >>> from astropy.modeling.models import Gaussian1D
       >>> Gaussian1D
-      <class 'astropy.modeling.functional_models.Gaussian1D'>
+      <class 'astropy.modeling.models._functional_models.Gaussian1D'>
       Name: Gaussian1D
       N_inputs: 1
       N_outputs: 1

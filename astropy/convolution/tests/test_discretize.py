@@ -7,7 +7,7 @@ import pytest
 from numpy.testing import assert_allclose
 
 from astropy.convolution.utils import discretize_model
-from astropy.modeling.functional_models import (
+from astropy.modeling.models import (
     Box1D,
     Box2D,
     Gaussian1D,

@@ -50,6 +50,7 @@ __all__ = [
     "KingProjectedAnalytic1D",
     "Exponential1D",
     "Logarithmic1D",
+    "FLOAT_EPSILON",
 ]
 
 TWOPI = 2 * np.pi
