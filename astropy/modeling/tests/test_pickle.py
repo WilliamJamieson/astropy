@@ -8,7 +8,6 @@ from numpy.testing import assert_allclose
 
 from astropy import units as u
 from astropy.modeling import (
-    physical_models,
     polynomial,
     powerlaws,
     projections,
@@ -16,7 +15,12 @@ from astropy.modeling import (
     spline,
     tabular,
 )
-from astropy.modeling.models import _functional_models, _mappings, math
+from astropy.modeling.models import (
+    _functional_models,
+    _mappings,
+    _physical_models,
+    math,
+)
 from astropy.modeling.models._math_functions import ArctanhUfunc
 from astropy.utils.compat.optional_deps import HAS_SCIPY
 
@@ -122,9 +126,9 @@ def test_pickle_affine_transformation_2D(inputs):
     assert m.matrix.fixed is True
 
 
-@pytest.mark.parametrize("model", physical_models.__all__)
+@pytest.mark.parametrize("model", _physical_models.__all__)
 def test_pickle_physical_models(inputs, model):
-    m = getattr(physical_models, model)()
+    m = getattr(_physical_models, model)()
     m1 = loads(dumps(m))
     if m.n_inputs == 1:
         assert_allclose(m(inputs[0]), m1(inputs[0]))

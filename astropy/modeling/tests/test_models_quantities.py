@@ -24,6 +24,7 @@ from astropy.modeling.models import (
     Const2D,
     Cosine1D,
     Disk2D,
+    Drude1D,
     Ellipse2D,
     Exponential1D,
     Gaussian1D,
@@ -36,6 +37,7 @@ from astropy.modeling.models import (
     Moffat2D,
     Multiply,
     Planar2D,
+    Plummer1D,
     RickerWavelet1D,
     RickerWavelet2D,
     Ring2D,
@@ -49,7 +51,6 @@ from astropy.modeling.models import (
     Voigt1D,
 )
 from astropy.modeling.parameters import InputParameterError
-from astropy.modeling.physical_models import Drude1D, Plummer1D
 from astropy.modeling.polynomial import Polynomial1D, Polynomial2D
 from astropy.modeling.powerlaws import (
     BrokenPowerLaw1D,

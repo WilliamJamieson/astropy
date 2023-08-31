@@ -63,6 +63,7 @@ from astropy.modeling.models import (
     Const2D,
     Cosine1D,
     Disk2D,
+    Drude1D,
     Exponential1D,
     Gaussian1D,
     Gaussian2D,
@@ -73,6 +74,7 @@ from astropy.modeling.models import (
     Moffat1D,
     Moffat2D,
     Planar2D,
+    Plummer1D,
     RickerWavelet1D,
     RickerWavelet2D,
     Ring2D,
@@ -84,7 +86,6 @@ from astropy.modeling.models import (
     TrapezoidDisk2D,
     Voigt1D,
 )
-from astropy.modeling.physical_models import Drude1D, Plummer1D
 from astropy.modeling.polynomial import Polynomial1D, Polynomial2D
 from astropy.modeling.powerlaws import (
     BrokenPowerLaw1D,

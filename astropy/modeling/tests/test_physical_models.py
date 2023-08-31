@@ -12,7 +12,7 @@ from astropy.modeling.fitting import (
     LMLSQFitter,
     TRFLSQFitter,
 )
-from astropy.modeling.physical_models import NFW, BlackBody
+from astropy.modeling.models import NFW, BlackBody
 from astropy.tests.helper import assert_quantity_allclose
 from astropy.utils.compat.optional_deps import HAS_SCIPY
 from astropy.utils.exceptions import AstropyUserWarning
