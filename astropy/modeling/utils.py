@@ -350,7 +350,10 @@ def _module_deprecation_warn(module_name, attr_=None):
 def _module_deprecation_getattr(module, module_name):
     def getattr_(name):
         _module_deprecation_warn(module_name, name)
-        return getattr(module, name)
+        attr = getattr(module, name)
+        if hasattr(module, "__module__"):
+            attr.__module__ = module_name
+        return attr
 
     return getattr_
 
