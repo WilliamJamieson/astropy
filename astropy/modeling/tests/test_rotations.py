@@ -9,7 +9,8 @@ import pytest
 from numpy.testing import assert_allclose
 
 import astropy.units as u
-from astropy.modeling import models, rotations
+from astropy.modeling import models
+from astropy.modeling.models import _rotations as rotations
 from astropy.tests.helper import assert_quantity_allclose
 from astropy.wcs import wcs
 

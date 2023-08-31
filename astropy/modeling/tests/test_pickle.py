@@ -8,7 +8,6 @@ from numpy.testing import assert_allclose
 
 from astropy import units as u
 from astropy.modeling import (
-    rotations,
     spline,
     tabular,
 )
@@ -19,6 +18,7 @@ from astropy.modeling.models import (
     _polynomial,
     _powerlaws,
     _projections,
+    _rotations,
     math,
 )
 from astropy.modeling.models._math_functions import ArctanhUfunc
@@ -53,7 +53,7 @@ OTHER_MODELS = [
     _mappings.Mapping((1, 0)),
     _mappings.Identity(2),
     ArctanhUfunc(),
-    rotations.Rotation2D(23),
+    _rotations.Rotation2D(23),
     tabular.Tabular1D(lookup_table=[1, 2, 3, 4]),
     tabular.Tabular2D(lookup_table=[[1, 2, 3, 4], [5, 6, 7, 8]]),
 ]
@@ -62,12 +62,12 @@ POLYNOMIALS_1D = ["Chebyshev1D", "Hermite1D", "Legendre1D", "Polynomial1D"]
 POLYNOMIALS_2D = ["Chebyshev2D", "Hermite2D", "Legendre2D", "InverseSIP"]
 
 ROTATIONS = [
-    rotations.RotateCelestial2Native(12, 23, 34),
-    rotations.RotateNative2Celestial(12, 23, 34),
-    rotations.EulerAngleRotation(12, 23, 34, "xyz"),
-    rotations.RotationSequence3D([12, 23, 34], axes_order="xyz"),
-    rotations.SphericalRotationSequence([12, 23, 34], "xyz"),
-    rotations.Rotation2D(12),
+    _rotations.RotateCelestial2Native(12, 23, 34),
+    _rotations.RotateNative2Celestial(12, 23, 34),
+    _rotations.EulerAngleRotation(12, 23, 34, "xyz"),
+    _rotations.RotationSequence3D([12, 23, 34], axes_order="xyz"),
+    _rotations.SphericalRotationSequence([12, 23, 34], "xyz"),
+    _rotations.Rotation2D(12),
 ]
 
 

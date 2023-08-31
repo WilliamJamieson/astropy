@@ -25,10 +25,9 @@ import numpy as np
 
 from astropy import units as u
 from astropy.coordinates.matrix_utilities import rotation_matrix
-
-from .core import Model
-from .parameters import Parameter
-from .utils import _to_orig_unit, _to_radian
+from astropy.modeling.core import Model
+from astropy.modeling.parameters import Parameter
+from astropy.modeling.utils import _to_orig_unit, _to_radian
 
 __all__ = [
     "RotateCelestial2Native",
