@@ -1,22 +1,18 @@
-Contributing to Astropy
-=======================
+# Contributing to Astropy
 
-Reporting Issues
-----------------
+## Reporting Issues
 
 When opening an issue to report a problem, please try to provide a minimal code
 example that reproduces the issue along with details of the operating
 system and the Python, NumPy, and `astropy` versions you are using.
 
-Contributing Code and Documentation
------------------------------------
+## Contributing Code and Documentation
 
-So you are interested in contributing to the Astropy Project?  Excellent!
+So you are interested in contributing to the Astropy Project? Excellent!
 We love contributions! Astropy is open source, built on open source, and
 we'd love to have you hang out in our community.
 
-Anti Imposter Syndrome Reassurance
-----------------------------------
+## Anti Imposter Syndrome Reassurance
 
 We want your help. No, really.
 
@@ -45,8 +41,7 @@ Note: This text was originally written by
 Astropy based on its use in the README file for the
 [MetPy project](https://github.com/Unidata/MetPy).
 
-How to Contribute, Best Practices
----------------------------------
+## How to Contribute, Best Practices
 
 Most contributions to Astropy are done via [pull
 requests](https://help.github.com/en/github/collaborating-with-issues-and-pull-requests/about-pull-requests)
@@ -63,7 +58,7 @@ and follow the Astropy guidelines for reuse, interoperability, and interfacing.
 Each affiliated package has its own developers/maintainers and its own specific
 guidelines for contributions, so be sure to read their docs.
 
-Once you open a pull request (which should be opened against the ``main``
+Once you open a pull request (which should be opened against the `main`
 branch, not against any of the other branches), please make sure to
 include the following:
 
@@ -78,7 +73,7 @@ include the following:
   tests, see our [testing guidelines](https://docs.astropy.org/en/latest/development/testguide.html).
 
 - **Documentation**: if you are adding new functionality, be sure to include a
-  description in the main documentation (in ``docs/``). Again, we have some
+  description in the main documentation (in `docs/`). Again, we have some
   detailed [documentation guidelines](https://docs.astropy.org/en/latest/development/docguide.html) to help you out.
 
 - **Performance improvements**: if you are making changes that impact `astropy`
@@ -88,8 +83,8 @@ include the following:
   [in the README for that repository](https://github.com/astropy/astropy-benchmarks#contributing-benchmarks).
 
 - **Changelog entry**: whether you are fixing a bug or adding new
-  functionality, you should add a changelog fragment in the ``docs/changes/``
-  directory. See ``docs/changes/README.rst`` for some guidance on the creation
+  functionality, you should add a changelog fragment in the `docs/changes/`
+  directory. See `docs/changes/README.rst` for some guidance on the creation
   of this file.
 
   If you are opening a pull request you may not know
@@ -104,8 +99,7 @@ include the following:
   issues) need to be mentioned. If in doubt, ask the core maintainer reviewing
   your changes.
 
-Checklist for Contributed Code
-------------------------------
+## Checklist for Contributed Code
 
 Before being merged, a pull request for a new feature will be reviewed to see if
 it meets the following requirements. If you are unsure about how to meet all of these
@@ -114,59 +108,64 @@ maintainer will collaborate with you to make sure that the pull request meets th
 requirements for inclusion in the package:
 
 **Scientific Quality** (when applicable)
-  * Is the submission relevant to astronomy?
-  * Are references included to the origin source for the algorithm?
-  * Does the code perform as expected?
-  * Has the code been tested against previously existing implementations?
+
+- Is the submission relevant to astronomy?
+- Are references included to the origin source for the algorithm?
+- Does the code perform as expected?
+- Has the code been tested against previously existing implementations?
 
 **Code Quality**
-  * Are the [coding guidelines](https://docs.astropy.org/en/latest/development/codeguide.html) followed?
-  * Is the code compatible with Python >=3.8?
-  * Are there dependencies other than the `astropy` core, the Python Standard
-    Library, and NumPy 1.18.0 or later?
-    * Is the package importable even if the C-extensions are not built?
-    * Are additional dependencies handled appropriately?
-    * Do functions that require additional dependencies raise an `ImportError`
-      if they are not present?
+
+- Are the [coding guidelines](https://docs.astropy.org/en/latest/development/codeguide.html) followed?
+- Is the code compatible with Python >=3.8?
+- Are there dependencies other than the `astropy` core, the Python Standard
+  Library, and NumPy 1.18.0 or later?
+  - Is the package importable even if the C-extensions are not built?
+  - Are additional dependencies handled appropriately?
+  - Do functions that require additional dependencies raise an `ImportError`
+    if they are not present?
 
 **Testing**
-  * Are the [testing guidelines](https://docs.astropy.org/en/latest/development/testguide.html) followed?
-  * Are the inputs to the functions sufficiently tested?
-  * Are there tests for any exceptions raised?
-  * Are there tests for the expected performance?
-  * Are the sources for the tests documented?
-  * Have tests that require an [optional dependency](https://docs.astropy.org/en/latest/development/testguide.html#tests-requiring-optional-dependencies)
-    been marked as such?
-  * Does ``tox -e test`` run without failures?
+
+- Are the [testing guidelines](https://docs.astropy.org/en/latest/development/testguide.html) followed?
+- Are the inputs to the functions sufficiently tested?
+- Are there tests for any exceptions raised?
+- Are there tests for the expected performance?
+- Are the sources for the tests documented?
+- Have tests that require an [optional dependency](https://docs.astropy.org/en/latest/development/testguide.html#tests-requiring-optional-dependencies)
+  been marked as such?
+- Does `tox -e test` run without failures?
 
 **Documentation**
-  * Are the [documentation guidelines](https://docs.astropy.org/en/latest/development/docguide.html) followed?
-  * Is there a docstring in [numpydoc format](https://numpydoc.readthedocs.io/en/latest/format.html) in the function describing:
-    * What the code does?
-    * The format of the inputs of the function?
-    * The format of the outputs of the function?
-    * References to the original algorithms?
-    * Any exceptions which are raised?
-    * An example of running the code?
-  * Is there any information needed to be added to the docs to describe the
-    function?
-  * Does the documentation build without errors or warnings?
+
+- Are the [documentation guidelines](https://docs.astropy.org/en/latest/development/docguide.html) followed?
+- Is there a docstring in [numpydoc format](https://numpydoc.readthedocs.io/en/latest/format.html) in the function describing:
+  - What the code does?
+  - The format of the inputs of the function?
+  - The format of the outputs of the function?
+  - References to the original algorithms?
+  - Any exceptions which are raised?
+  - An example of running the code?
+- Is there any information needed to be added to the docs to describe the
+  function?
+- Does the documentation build without errors or warnings?
 
 **License**
-  * Is the `astropy` license included at the top of the file?
-  * Are there any conflicts with this code and existing codes?
+
+- Is the `astropy` license included at the top of the file?
+- Are there any conflicts with this code and existing codes?
 
 **Astropy requirements**
-  * Do all the GitHub Actions and CircleCI tests pass? If not, are they allowed to fail?
-  * If applicable, has an entry been added into the changelog?
-  * Can you check out the pull request and repeat the examples and tests?
 
-Other Tips
-----------
+- Do all the GitHub Actions and CircleCI tests pass? If not, are they allowed to fail?
+- If applicable, has an entry been added into the changelog?
+- Can you check out the pull request and repeat the examples and tests?
+
+## Other Tips
 
 - Behind the scenes, we conduct a number of tests or checks with new pull requests.
   This is a technique that is called continuous integration, and we use GitHub Actions
-  and CircleCI. To prevent the automated tests from running, you can add ``[ci skip]``
+  and CircleCI. To prevent the automated tests from running, you can add `[ci skip]`
   to your commit message. This is useful if your PR is a work in progress (WIP) and
   you are not yet ready for the tests to run. For example:
 
@@ -178,14 +177,14 @@ Other Tips
         $ git commit --amend
 
 - If your commit makes substantial changes to the documentation but none of
-  those changes include code snippets, then you can use ``[ci skip]``,
+  those changes include code snippets, then you can use `[ci skip]`,
   which will skip all CI except RTD, where the documentation is built.
 
 - When contributing trivial documentation fixes (i.e., fixes to typos, spelling,
   grammar) that don't contain any special markup and are not associated with
-  code changes, please include the string ``[ci skip]`` in your commit
+  code changes, please include the string `[ci skip]` in your commit
   message.
 
       $ git commit -m "Fixed typo [ci skip]"
 
-- ``[ci skip]`` and ``[skip ci]`` are the same and can be used interchangeably.
+- `[ci skip]` and `[skip ci]` are the same and can be used interchangeably.

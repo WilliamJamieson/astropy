@@ -1,0 +1,11 @@
+# Ignore bundled data:
+astropy/coordinates/data/*
+astropy/io/ascii/tests/data/*
+
+# Ignore extern:
+astropy/extern/*
+cextern/*
+
+# Ignore docs related files:
+docs/**/*.html
+docs/**/*.inc

@@ -9,14 +9,14 @@ Docs:
   - CITATION
   - .mailmap
   - .readthedocs.yaml
-  - '*.md'
-  - any: ['*.rst', '!CHANGES.rst']
+  - "*.md"
+  - any: ["*.rst", "!CHANGES.rst"]
 
 testing:
   - astropy/tests/**/*
   - codecov.yml
   - conftest.py
-  - '**/conftest.py'
+  - "**/conftest.py"
   - tox.ini
   - .circleci/*
   - .github/**/*.yml
@@ -36,26 +36,26 @@ Release:
   - docs/development/releasing.rst
 
 config:
-  - '**/config/**/*'
+  - "**/config/**/*"
   - astropy/extern/configobj/**/*
 
 constants:
-  - '**/constants/**/*'
+  - "**/constants/**/*"
 
 convolution:
-  - '**/convolution/**/*'
+  - "**/convolution/**/*"
 
 coordinates:
-  - '**/coordinates/**/*'
+  - "**/coordinates/**/*"
 
 cosmology:
-  - '**/cosmology/**/*'
+  - "**/cosmology/**/*"
 
 io.ascii:
-  - '**/io/ascii/**/*'
+  - "**/io/ascii/**/*"
 
 io.fits:
-  - '**/io/fits/**/*'
+  - "**/io/fits/**/*"
   - cextern/cfitsio/**/*
 
 io.misc:
@@ -70,7 +70,7 @@ io.registry:
   - docs/io/registry.rst
 
 io.votable:
-  - '**/io/votable/**/*'
+  - "**/io/votable/**/*"
 
 logging:
   - astropy/logger.py
@@ -78,42 +78,47 @@ logging:
   - docs/logging.rst
 
 modeling:
-  - '**/modeling/**/*'
+  - "**/modeling/**/*"
 
 nddata:
-  - '**/nddata/**/*'
+  - "**/nddata/**/*"
 
 samp:
-  - '**/samp/**/*'
+  - "**/samp/**/*"
 
 stats:
-  - '**/stats/**/*'
+  - "**/stats/**/*"
 
 table:
-  - '**/table/**/*'
+  - "**/table/**/*"
   - astropy/extern/jquery/**/*
 
 time:
-  - '**/time/**/*'
+  - "**/time/**/*"
 
 timeseries:
-  - '**/timeseries/**/*'
+  - "**/timeseries/**/*"
 
 uncertainty:
-  - '**/uncertainty/**/*'
+  - "**/uncertainty/**/*"
 
 unified-io:
   - docs/io/unified.rst
 
 units:
-  - '**/units/**/*'
+  - "**/units/**/*"
   - astropy/extern/ply/**/*
 
 utils:
   - cextern/expat/**/*
-  - any: ['**/utils/**/*',
-          '!astropy/utils/iers/**/*', '!docs/utils/iers.rst',
-          '!astropy/utils/masked/**/*', '!docs/utils/masked/**/*']
+  - any:
+      [
+        "**/utils/**/*",
+        "!astropy/utils/iers/**/*",
+        "!docs/utils/iers.rst",
+        "!astropy/utils/masked/**/*",
+        "!docs/utils/masked/**/*",
+      ]
 
 utils.iers:
   - astropy/utils/iers/**/*
@@ -124,14 +129,14 @@ utils.masked:
   - docs/utils/masked/**/*
 
 visualization:
-  - any: ['**/visualization/**/*', '!**/visualization/wcsaxes/**/*']
+  - any: ["**/visualization/**/*", "!**/visualization/wcsaxes/**/*"]
 
 visualization.wcsaxes:
-  - '**/visualization/wcsaxes/**/*'
+  - "**/visualization/wcsaxes/**/*"
 
 wcs:
   - cextern/wcslib/**/*
-  - any: ['**/wcs/**/*', '!astropy/wcs/wcsapi/**/*', '!docs/wcs/wcsapi.rst']
+  - any: ["**/wcs/**/*", "!astropy/wcs/wcsapi/**/*", "!docs/wcs/wcsapi.rst"]
 
 wcs.wcsapi:
   - astropy/wcs/wcsapi/**/*

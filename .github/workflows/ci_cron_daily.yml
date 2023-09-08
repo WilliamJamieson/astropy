@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   schedule:
     # run every day at 3am UTC
-    - cron: '0 3 * * *'
+    - cron: "0 3 * * *"
   pull_request:
     # We also want this workflow triggered if the 'Extra CI' label is added
     # or present when PR is updated
@@ -17,9 +17,9 @@ on:
     # regressions on the release branches, and it's also important to run
     # this on pre-release and release tags.
     branches:
-    - 'v*'
+      - "v*"
     tags:
-    - '*'
+      - "*"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -47,30 +47,30 @@ jobs:
 
           - name: Python 3.11 with all optional dependencies and pre-releases
             os: ubuntu-latest
-            python: '3.11'
+            python: "3.11"
             toxenv: py311-test-alldeps-predeps
             toxargs: -v
             toxposargs: --remote-data=any
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
-      with:
-        fetch-depth: 0
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
 
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ matrix.python }}
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python }}
 
-    - name: Install language-pack-de and tzdata
-      if: ${{ matrix.os == 'ubuntu-latest' }}
-      run: |
-        sudo apt-get update
-        sudo apt-get install language-pack-de tzdata
+      - name: Install language-pack-de and tzdata
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install language-pack-de tzdata
 
-    - name: Install Python dependencies
-      run: python -m pip install --upgrade tox
+      - name: Install Python dependencies
+        run: python -m pip install --upgrade tox
 
-    - name: Run tests
-      run: tox ${{ matrix.toxargs}} -e ${{ matrix.toxenv}} -- ${{ matrix.toxposargs}}
+      - name: Run tests
+        run: tox ${{ matrix.toxargs}} -e ${{ matrix.toxenv}} -- ${{ matrix.toxposargs}}
