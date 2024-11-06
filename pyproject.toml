@@ -44,6 +44,7 @@ dependencies = [
     "astropy-iers-data>=0.2024.10.28.0.34.7",
     "PyYAML>=6.0.0",
     "packaging>=22.0.0",
+    "typing-extensions>=4.12",
 ]
 
 [project.optional-dependencies]
