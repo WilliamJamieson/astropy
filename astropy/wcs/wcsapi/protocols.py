@@ -1,10 +1,15 @@
 from collections.abc import Iterable
-from typing import Any, Protocol, runtime_checkable
+from numbers import Number
+from typing import Protocol, TypeVar, runtime_checkable
 
 import numpy as np
 from typing_extensions import Buffer  # Need 3.12 for this to be in stdlib
 
-scalar = int | float | np.number
+from astropy.coordinates import SkyCoord, SpectralCoord
+from astropy.time import Time
+from astropy.units import Quantity
+
+scalar = Number | np.number
 interval = tuple[scalar, scalar]
 
 boolean_buffer = Buffer | np.typing.NDArray[bool]
@@ -16,15 +21,16 @@ index_arrays = tuple[int | index_buffer, ...]
 
 output_coords = scalar | scalar_buffer | scalar_arrays
 
+HighLevelObject = TypeVar("HighLevelObject")
+
 world_axis_component = tuple[str, str | int, str]
-world_axis_class = tuple[type | str, tuple[int | None, ...], dict[str, Any]]
+world_axis_class = tuple[type | str, tuple[int | None, ...], dict[str, HighLevelObject]]
 
 
 @runtime_checkable
 class LowLevelWCS(Protocol):
     """
-    Protocol for low-level WCS interfaces, this is an implementation of what
-    was described by
+    Protocol for low-level WCS interfaces.
 
     This is described in `APE 14: A shared Python interface for World Coordinate
     Systems <https://doi.org/10.5281/zenodo.1188875>`_.
@@ -112,6 +118,19 @@ class LowLevelWCS(Protocol):
         <http://ivoa.net/documents/VOUnits/>`_ (though as noted in the VOUnit
         specification document, units that do not follow this standard are still
         allowed, but just not recommended).
+        """
+        ...
+
+    @property
+    def world_axis_names(self) -> Iterable[str]:
+        """
+        An iterable of strings describing the name for each world axis.
+
+        If an axis does not have a name, an empty string should be returned
+        (this is the default behavior for all axes if a subclass does not
+        override this property). Note that these names are just for display
+        purposes and are not standardized. For standardized names, use
+        ``world_axis_physical_types``.
         """
         ...
 
@@ -252,5 +271,66 @@ class LowLevelWCS(Protocol):
         Implementations should either always or never use serialized classes
         to represent Python objects, and should indicate which of these they
         follow using the ``serialized_classes`` attribute.
+        """
+        ...
+
+
+# These are the implemented types for the high-level WCS interface
+#   but they can be anything from the world_axis_object_classes (hence the type var)
+high_level_object = Time | SkyCoord | SpectralCoord | Quantity | HighLevelObject
+high_level_output = high_level_object | tuple[high_level_object]
+
+
+@runtime_checkable
+class HighLevelWCS(Protocol):
+    """
+    Protocol for high-level WCS interfaces.
+
+    This is described in `APE 14: A shared Python interface for World Coordinate
+    Systems <https://doi.org/10.5281/zenodo.1188875>`_.
+    """
+
+    @property
+    def low_level_wcs(self) -> LowLevelWCS:
+        """
+        The low-level WCS object that this high-level WCS object wraps.
+        """
+        ...
+
+    def pixel_to_world(
+        self, *pixel_arrays: tuple[high_level_object]
+    ) -> high_level_output:
+        """
+        Convert pixel coordinates to world coordinates (represented by Astropy
+        objects). See ``pixel_to_world_values`` for pixel indexing and ordering
+        conventions.
+        """
+        ...
+
+    def array_index_to_world(
+        self, *index_arrays: tuple[high_level_object]
+    ) -> high_level_output:
+        """
+        Convert array indices to world coordinates (represented by Astropy
+        objects). See ``array_index_to_world_values`` for array indexing and ordering
+        conventions.
+        """
+        ...
+
+    def world_to_pixel(self, *world_objects: tuple[high_level_object]) -> output_coords:
+        """
+        Convert world coordinates (represented by Astropy objects) to pixel
+        coordinates. See ``world_to_pixel_values`` for pixel indexing and
+        ordering conventions.
+        """
+        ...
+
+    def world_to_array_index(
+        self, *world_objects: tuple[high_level_object]
+    ) -> output_coords:
+        """
+        Convert world coordinates (represented by Astropy objects) to array
+        indices. See ``world_to_array_index_values`` for array indexing and ordering
+        conventions. The indices should be returned as rounded integers.
         """
         ...
