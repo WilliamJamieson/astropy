@@ -1,3 +1,4 @@
+from abc import abstractmethod
 from collections.abc import Iterable
 from numbers import Number
 from typing import Protocol, TypeVar, runtime_checkable
@@ -20,6 +21,7 @@ scalar_arrays = tuple[scalar | scalar_buffer, ...]
 index_arrays = tuple[int | index_buffer, ...]
 
 output_coords = scalar | scalar_buffer | scalar_arrays
+output_index = int | index_buffer | index_arrays
 
 HighLevelObject = TypeVar("HighLevelObject")
 
@@ -37,6 +39,7 @@ class LowLevelWCS(Protocol):
     """
 
     @property
+    @abstractmethod
     def pixel_n_dim(self) -> int:
         """
         The number of axes in the pixel coordinate system
@@ -44,6 +47,7 @@ class LowLevelWCS(Protocol):
         ...
 
     @property
+    @abstractmethod
     def world_n_dim(self) -> int:
         """
         The number of axes in the world coordinate system
@@ -51,7 +55,20 @@ class LowLevelWCS(Protocol):
         ...
 
     @property
-    def array_shape(self) -> tuple[int, ...]:
+    @abstractmethod
+    def pixel_axis_names(self) -> Iterable[str]:
+        """
+        An iterable of strings describing the name for each pixel axis.
+
+        If an axis does not have a name, an empty string should be returned
+        (this is the default behavior for all axes if a subclass does not
+        override this property). Note that these names are just for display
+        purposes and are not standardized.
+        """
+
+    @property
+    @abstractmethod
+    def array_shape(self) -> tuple[int, ...] | None:
         """
         The shape of the data that the WCS applies to as a tuple of length
         ``pixel_n_dim`` in ``(row, column)`` order (the convention for
@@ -66,7 +83,8 @@ class LowLevelWCS(Protocol):
         ...
 
     @property
-    def pixel_shape(self) -> tuple[int, ...]:
+    @abstractmethod
+    def pixel_shape(self) -> tuple[int, ...] | None:
         """
         The shape of the data that the WCS applies to as a tuple of length
         ``pixel_n_dim`` in ``(x, y)`` order (where for an image, ``x`` is
@@ -82,6 +100,7 @@ class LowLevelWCS(Protocol):
         ...
 
     @property
+    @abstractmethod
     def pixel_bounds(self) -> tuple[interval, ...] | list[interval] | interval | None:
         """
         The bounds (in pixel coordinates) inside which the WCS is defined,
@@ -96,6 +115,7 @@ class LowLevelWCS(Protocol):
         ...
 
     @property
+    @abstractmethod
     def world_axis_physical_types(self) -> Iterable[str]:
         """
         An iterable of strings describing the physical type for each world axis.
@@ -109,6 +129,7 @@ class LowLevelWCS(Protocol):
         ...
 
     @property
+    @abstractmethod
     def world_axis_units(self) -> Iterable[str]:
         """
         An iterable of strings given the units of the world coordinates for each
@@ -122,6 +143,7 @@ class LowLevelWCS(Protocol):
         ...
 
     @property
+    @abstractmethod
     def world_axis_names(self) -> Iterable[str]:
         """
         An iterable of strings describing the name for each world axis.
@@ -135,6 +157,7 @@ class LowLevelWCS(Protocol):
         ...
 
     @property
+    @abstractmethod
     def axis_correlation_matrix(self) -> boolean_buffer:
         """
         Returns an ``(world_n_dim, pixel_n_dim)`` matrix that indicates
@@ -148,6 +171,7 @@ class LowLevelWCS(Protocol):
         """
         ...
 
+    @abstractmethod
     def pixel_to_world_values(self, *pixel_values: scalar_arrays) -> output_coords:
         """
         Convert pixel coordinates to world coordinates. This method takes
@@ -162,6 +186,7 @@ class LowLevelWCS(Protocol):
         """
         ...
 
+    @abstractmethod
     def array_index_to_world_values(self, *index_arrays: index_arrays) -> output_coords:
         """
         Convert array indices to world coordinates. This is the same as
@@ -171,6 +196,7 @@ class LowLevelWCS(Protocol):
         """
         ...
 
+    @abstractmethod
     def world_to_pixel_values(self, *world_arrays: scalar_arrays) -> output_coords:
         """
         Convert world coordinates to pixel coordinates. This method takes
@@ -185,7 +211,8 @@ class LowLevelWCS(Protocol):
         """
         ...
 
-    def world_to_array_index_values(self, *world_arrays: index_arrays) -> output_coords:
+    @abstractmethod
+    def world_to_array_index_values(self, *world_arrays: scalar_arrays) -> output_index:
         """
         Convert world coordinates to array indices. This is the same as
         ``world_to_pixel_values`` except that the indices should be returned
@@ -196,6 +223,7 @@ class LowLevelWCS(Protocol):
         ...
 
     @property
+    @abstractmethod
     def serialized_classes(self) -> bool:
         """
         Indicates whether Python objects are given in serialized form or as
@@ -204,6 +232,7 @@ class LowLevelWCS(Protocol):
         ...
 
     @property
+    @abstractmethod
     def world_axis_object_components(self) -> list[world_axis_component]:
         """
         A list with n_dim_world elements, where each element is a tuple with
@@ -224,11 +253,13 @@ class LowLevelWCS(Protocol):
           to access on the corresponding class from
           ``world_axis_object_classes`` in order to get numerical values.
 
-        See below for an example of this property.
+        See the document `APE 14: A shared Python interface for World Coordinate
+        Systems <https://doi.org/10.5281/zenodo.1188875>`_ for examples .
         """
         ...
 
     @property
+    @abstractmethod
     def world_axis_object_classes(self) -> dict[str, world_axis_class]:
         """
         A dictionary with each key being a string key from
@@ -271,6 +302,10 @@ class LowLevelWCS(Protocol):
         Implementations should either always or never use serialized classes
         to represent Python objects, and should indicate which of these they
         follow using the ``serialized_classes`` attribute.
+
+        See the document
+        `APE 14: A shared Python interface for World Coordinate Systems
+        <https://doi.org/10.5281/zenodo.1188875>`_ for examples .
         """
         ...
 
@@ -291,46 +326,71 @@ class HighLevelWCS(Protocol):
     """
 
     @property
+    @abstractmethod
     def low_level_wcs(self) -> LowLevelWCS:
         """
         The low-level WCS object that this high-level WCS object wraps.
         """
         ...
 
-    def pixel_to_world(
-        self, *pixel_arrays: tuple[high_level_object]
-    ) -> high_level_output:
+    @abstractmethod
+    def pixel_to_world(self, *pixel_arrays: scalar_arrays) -> high_level_output:
         """
         Convert pixel coordinates to world coordinates (represented by Astropy
-        objects). See ``pixel_to_world_values`` for pixel indexing and ordering
-        conventions.
+        objects).
+
+        If a single high-level object is used to represent the world coordinates
+        (i.e., if ``len(wcs.world_axis_object_classes) == 1``), it is returned
+        as-is (not in a tuple/list), otherwise a tuple of high-level objects is
+        returned. See
+        `~astropy.wcs.wcsapi.protocols. LowLevelWCS.pixel_to_world_values` for
+        pixel indexing and ordering conventions.
         """
         ...
 
-    def array_index_to_world(
-        self, *index_arrays: tuple[high_level_object]
-    ) -> high_level_output:
+    @abstractmethod
+    def array_index_to_world(self, *index_arrays: index_arrays) -> high_level_output:
         """
         Convert array indices to world coordinates (represented by Astropy
-        objects). See ``array_index_to_world_values`` for array indexing and ordering
-        conventions.
+        objects).
+
+        If a single high-level object is used to represent the world coordinates
+        (i.e., if ``len(wcs.world_axis_object_classes) == 1``), it is returned
+        as-is (not in a tuple/list), otherwise a tuple of high-level objects is
+        returned. See
+        `~astropy.wcs.wcsapi.protocols. LowLevelWCS.array_index_to_world_values`
+        for pixel indexing and ordering conventions.
         """
         ...
 
+    @abstractmethod
     def world_to_pixel(self, *world_objects: tuple[high_level_object]) -> output_coords:
         """
         Convert world coordinates (represented by Astropy objects) to pixel
         coordinates. See ``world_to_pixel_values`` for pixel indexing and
         ordering conventions.
+
+        If `~astropy.wcs.wcsapi.protocols.LowLevelWCS.pixel_n_dim` is ``1``,
+        this method returns a single scalar or array, otherwise a tuple of
+        scalars or arrays is returned. See
+        `~astropy.wcs.wcsapi.protocols.LowLevelWCS.world_to_pixel_values` for
+        pixel indexing and ordering conventions.
         """
         ...
 
+    @abstractmethod
     def world_to_array_index(
         self, *world_objects: tuple[high_level_object]
-    ) -> output_coords:
+    ) -> output_index:
         """
         Convert world coordinates (represented by Astropy objects) to array
-        indices. See ``world_to_array_index_values`` for array indexing and ordering
-        conventions. The indices should be returned as rounded integers.
+        indices.
+
+        If `~astropy.wcs.wcsapi.protocols.LowLevelWCS.pixel_n_dim` is ``1``,
+        this method returns a single scalar or array, otherwise a tuple of
+        scalars or arrays is returned. See
+        `~astropy.wcs.wcsapi.protocols.LowLevelWCS.world_to_array_index_values`
+        for pixel indexing and ordering conventions. The indices should be
+        returned as rounded integers.
         """
         ...
