@@ -1,23 +1,27 @@
+from __future__ import annotations
+
 import abc
 import numbers
 from collections import OrderedDict, defaultdict
+from typing import TYPE_CHECKING
 
 import numpy as np
 
-from astropy.coordinates import SkyCoord, SpectralCoord
-from astropy.time import Time
-from astropy.units import Quantity
-
-from .low_level_api import (
-    BaseLowLevelWCS,
-    input_index_or_ndarray,
-    input_scalar_or_ndarray,
-    output_index_or_ndarray,
-    output_scalar_or_ndarray,
-    scalar_or_ndarray,
-)
-from .protocols import HighLevelWCS, world_axis_component
+from .protocols import HighLevelWCS
 from .utils import deserialize_class
+
+if TYPE_CHECKING:
+    from .low_level_api import BaseLowLevelWCS
+    from .typing import (
+        AstropyInputs,
+        AstropyOutput,
+        InputIndexOrNdarray,
+        InputScalarOrNdarray,
+        OutputIndexOrNdarray,
+        OutputScalarOrNdarray,
+        ScalarOrNdarray,
+        WorldAxisComponent,
+    )
 
 __all__ = [
     "values_to_high_level_objects",
@@ -26,17 +30,14 @@ __all__ = [
     "HighLevelWCSMixin",
 ]
 
-astropy_object = Time | SkyCoord | SpectralCoord | Quantity
-astropy_output = astropy_object | tuple[astropy_object]
 
-
-def rec_getattr(obj: astropy_object, att: str) -> scalar_or_ndarray:
+def rec_getattr(obj: AstropyOutput, att: str) -> ScalarOrNdarray:
     for a in att.split("."):
         obj = getattr(obj, a)
     return obj
 
 
-def default_order(components: list[world_axis_component]) -> list[str]:
+def default_order(components: list[WorldAxisComponent]) -> list[str]:
     order = []
     for key, _, _ in components:
         if key not in order:
@@ -90,7 +91,7 @@ class BaseHighLevelWCS(HighLevelWCS, metaclass=abc.ABCMeta):
         """
 
     @abc.abstractmethod
-    def pixel_to_world(self, *pixel_arrays: input_scalar_or_ndarray) -> astropy_output:
+    def pixel_to_world(self, *pixel_arrays: InputScalarOrNdarray) -> AstropyOutput:
         """
         Convert pixel coordinates to world coordinates (represented by Astropy
         objects).
@@ -104,9 +105,7 @@ class BaseHighLevelWCS(HighLevelWCS, metaclass=abc.ABCMeta):
         """
         ...
 
-    def array_index_to_world(
-        self, *index_arrays: input_index_or_ndarray
-    ) -> astropy_output:
+    def array_index_to_world(self, *index_arrays: InputIndexOrNdarray) -> AstropyOutput:
         """
         Convert array indices to world coordinates (represented by Astropy
         objects).
@@ -121,9 +120,7 @@ class BaseHighLevelWCS(HighLevelWCS, metaclass=abc.ABCMeta):
         return self.pixel_to_world(*index_arrays[::-1])
 
     @abc.abstractmethod
-    def world_to_pixel(
-        self, *world_objects: tuple[astropy_object]
-    ) -> output_scalar_or_ndarray:
+    def world_to_pixel(self, *world_objects: AstropyInputs) -> OutputScalarOrNdarray:
         """
         Convert pixel coordinates to world coordinates (represented by
         high-level objects).
@@ -137,8 +134,8 @@ class BaseHighLevelWCS(HighLevelWCS, metaclass=abc.ABCMeta):
         """
 
     def world_to_array_index(
-        self, *world_objects: tuple[astropy_object]
-    ) -> output_index_or_ndarray:
+        self, *world_objects: AstropyInputs
+    ) -> OutputIndexOrNdarray:
         """
         Convert world coordinates (represented by Astropy objects) to array
         indices.
@@ -157,8 +154,8 @@ class BaseHighLevelWCS(HighLevelWCS, metaclass=abc.ABCMeta):
 
 
 def high_level_objects_to_values(
-    *world_objects: tuple[astropy_object], low_level_wcs: BaseLowLevelWCS
-) -> input_scalar_or_ndarray:
+    *world_objects: AstropyInputs, low_level_wcs: BaseLowLevelWCS
+) -> InputScalarOrNdarray:
     """
     Convert the input high level object to low level values.
 
@@ -296,8 +293,8 @@ def high_level_objects_to_values(
 
 
 def values_to_high_level_objects(
-    *world_values: output_scalar_or_ndarray, low_level_wcs: BaseLowLevelWCS
-) -> astropy_output:
+    *world_values: OutputScalarOrNdarray, low_level_wcs: BaseLowLevelWCS
+) -> AstropyOutput:
     """
     Convert low level values into high level objects.
 
@@ -376,9 +373,7 @@ class HighLevelWCSMixin(BaseHighLevelWCS):
     def low_level_wcs(self) -> BaseLowLevelWCS:
         return self
 
-    def world_to_pixel(
-        self, *world_objects: tuple[astropy_object]
-    ) -> output_scalar_or_ndarray:
+    def world_to_pixel(self, *world_objects: AstropyInputs) -> OutputScalarOrNdarray:
         world_values = high_level_objects_to_values(
             *world_objects, low_level_wcs=self.low_level_wcs
         )
@@ -386,7 +381,7 @@ class HighLevelWCSMixin(BaseHighLevelWCS):
         # Finally we convert to pixel coordinates
         return self.low_level_wcs.world_to_pixel_values(*world_values)
 
-    def pixel_to_world(self, *pixel_arrays: input_scalar_or_ndarray) -> astropy_output:
+    def pixel_to_world(self, *pixel_arrays: InputIndexOrNdarray) -> AstropyOutput:
         # Compute the world coordinate values
         world_values = self.low_level_wcs.pixel_to_world_values(*pixel_arrays)
 

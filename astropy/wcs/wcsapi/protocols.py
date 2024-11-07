@@ -1,32 +1,23 @@
+from __future__ import annotations
+
 from abc import abstractmethod
-from collections.abc import Iterable
-from numbers import Number
-from typing import Protocol, TypeVar, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-import numpy as np
-from typing_extensions import Buffer  # Need 3.12 for this to be in stdlib
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
-from astropy.coordinates import SkyCoord, SpectralCoord
-from astropy.time import Time
-from astropy.units import Quantity
-
-scalar = Number | np.number
-interval = tuple[scalar, scalar]
-
-boolean_buffer = Buffer | np.typing.NDArray[bool]
-scalar_buffer = Buffer | np.typing.NDArray[scalar]
-index_buffer = Buffer | np.typing.NDArray[int]
-
-scalar_arrays = tuple[scalar | scalar_buffer, ...]
-index_arrays = tuple[int | index_buffer, ...]
-
-output_coords = scalar | scalar_buffer | scalar_arrays
-output_index = int | index_buffer | index_arrays
-
-HighLevelObject = TypeVar("HighLevelObject")
-
-world_axis_component = tuple[str, str | int, str]
-world_axis_class = tuple[type | str, tuple[int | None, ...], dict[str, HighLevelObject]]
+    from .typing import (
+        BooleanBuffer,
+        HighLevelObject,
+        HighLevelOutput,
+        IndexArrays,
+        Interval,
+        OutputCoords,
+        OutputIndex,
+        ScalarArrays,
+        WorldAxisClass,
+        WorldAxisComponent,
+    )
 
 
 @runtime_checkable
@@ -101,7 +92,7 @@ class LowLevelWCS(Protocol):
 
     @property
     @abstractmethod
-    def pixel_bounds(self) -> tuple[interval, ...] | list[interval] | interval | None:
+    def pixel_bounds(self) -> tuple[Interval, ...] | list[Interval] | Interval | None:
         """
         The bounds (in pixel coordinates) inside which the WCS is defined,
         as a list with ``pixel_n_dim`` ``(min, max)`` tuples (optional).
@@ -158,7 +149,7 @@ class LowLevelWCS(Protocol):
 
     @property
     @abstractmethod
-    def axis_correlation_matrix(self) -> boolean_buffer:
+    def axis_correlation_matrix(self) -> BooleanBuffer:
         """
         Returns an ``(world_n_dim, pixel_n_dim)`` matrix that indicates
         using booleans whether a given world coordinate depends on a given
@@ -172,7 +163,7 @@ class LowLevelWCS(Protocol):
         ...
 
     @abstractmethod
-    def pixel_to_world_values(self, *pixel_values: scalar_arrays) -> output_coords:
+    def pixel_to_world_values(self, *pixel_values: ScalarArrays) -> OutputCoords:
         """
         Convert pixel coordinates to world coordinates. This method takes
         n_pixel scalars or arrays as input, and pixel coordinates should be
@@ -187,7 +178,7 @@ class LowLevelWCS(Protocol):
         ...
 
     @abstractmethod
-    def array_index_to_world_values(self, *index_arrays: index_arrays) -> output_coords:
+    def array_index_to_world_values(self, *index_arrays: IndexArrays) -> OutputCoords:
         """
         Convert array indices to world coordinates. This is the same as
         ``pixel_to_world_values`` except that the indices should be given
@@ -197,7 +188,7 @@ class LowLevelWCS(Protocol):
         ...
 
     @abstractmethod
-    def world_to_pixel_values(self, *world_arrays: scalar_arrays) -> output_coords:
+    def world_to_pixel_values(self, *world_arrays: ScalarArrays) -> OutputCoords:
         """
         Convert world coordinates to pixel coordinates. This method takes
         n_world scalars or arrays as input in units given by ``world_axis_units``.
@@ -212,7 +203,7 @@ class LowLevelWCS(Protocol):
         ...
 
     @abstractmethod
-    def world_to_array_index_values(self, *world_arrays: scalar_arrays) -> output_index:
+    def world_to_array_index_values(self, *world_arrays: ScalarArrays) -> OutputIndex:
         """
         Convert world coordinates to array indices. This is the same as
         ``world_to_pixel_values`` except that the indices should be returned
@@ -233,7 +224,7 @@ class LowLevelWCS(Protocol):
 
     @property
     @abstractmethod
-    def world_axis_object_components(self) -> list[world_axis_component]:
+    def world_axis_object_components(self) -> list[WorldAxisComponent]:
         """
         A list with n_dim_world elements, where each element is a tuple with
         three items:
@@ -260,7 +251,7 @@ class LowLevelWCS(Protocol):
 
     @property
     @abstractmethod
-    def world_axis_object_classes(self) -> dict[str, world_axis_class]:
+    def world_axis_object_classes(self) -> dict[str, WorldAxisClass]:
         """
         A dictionary with each key being a string key from
         ``world_axis_object_components``, and each value being a tuple with
@@ -310,12 +301,6 @@ class LowLevelWCS(Protocol):
         ...
 
 
-# These are the implemented types for the high-level WCS interface
-#   but they can be anything from the world_axis_object_classes (hence the type var)
-high_level_object = Time | SkyCoord | SpectralCoord | Quantity | HighLevelObject
-high_level_output = high_level_object | tuple[high_level_object]
-
-
 @runtime_checkable
 class HighLevelWCS(Protocol):
     """
@@ -334,7 +319,7 @@ class HighLevelWCS(Protocol):
         ...
 
     @abstractmethod
-    def pixel_to_world(self, *pixel_arrays: scalar_arrays) -> high_level_output:
+    def pixel_to_world(self, *pixel_arrays: ScalarArrays) -> HighLevelOutput:
         """
         Convert pixel coordinates to world coordinates (represented by Astropy
         objects).
@@ -349,7 +334,7 @@ class HighLevelWCS(Protocol):
         ...
 
     @abstractmethod
-    def array_index_to_world(self, *index_arrays: index_arrays) -> high_level_output:
+    def array_index_to_world(self, *index_arrays: IndexArrays) -> HighLevelOutput:
         """
         Convert array indices to world coordinates (represented by Astropy
         objects).
@@ -364,7 +349,7 @@ class HighLevelWCS(Protocol):
         ...
 
     @abstractmethod
-    def world_to_pixel(self, *world_objects: tuple[high_level_object]) -> output_coords:
+    def world_to_pixel(self, *world_objects: tuple[HighLevelOutput]) -> OutputCoords:
         """
         Convert world coordinates (represented by Astropy objects) to pixel
         coordinates. See ``world_to_pixel_values`` for pixel indexing and
@@ -380,8 +365,8 @@ class HighLevelWCS(Protocol):
 
     @abstractmethod
     def world_to_array_index(
-        self, *world_objects: tuple[high_level_object]
-    ) -> output_index:
+        self, *world_objects: tuple[HighLevelObject]
+    ) -> OutputIndex:
         """
         Convert world coordinates (represented by Astropy objects) to array
         indices.

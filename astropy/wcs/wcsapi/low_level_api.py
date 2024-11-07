@@ -1,20 +1,24 @@
+from __future__ import annotations
+
 import abc
 import os
+from typing import TYPE_CHECKING
 
 import numpy as np
 
-from .protocols import LowLevelWCS, scalar
+from .protocols import LowLevelWCS
+
+if TYPE_CHECKING:
+    from astropy.visualization.wcsaxes import WCSAxes
+
+    from .typing import (
+        InputIndexOrNdarray,
+        InputScalarOrNdarray,
+        OutputIndexOrNdarray,
+        OutputScalarOrNdarray,
+    )
 
 __all__ = ["BaseLowLevelWCS", "validate_physical_types"]
-
-scalar_or_ndarray = scalar | np.ndarray
-index_or_ndarray = int | np.typing.NDArray[np.int_]
-
-input_scalar_or_ndarray = tuple[scalar_or_ndarray, ...]
-input_index_or_ndarray = tuple[index_or_ndarray, ...]
-
-output_scalar_or_ndarray = scalar_or_ndarray | input_scalar_or_ndarray
-output_index_or_ndarray = index_or_ndarray | input_index_or_ndarray
 
 
 class BaseLowLevelWCS(LowLevelWCS, metaclass=abc.ABCMeta):
@@ -29,8 +33,8 @@ class BaseLowLevelWCS(LowLevelWCS, metaclass=abc.ABCMeta):
 
     @abc.abstractmethod
     def pixel_to_world_values(
-        self, *pixel_arrays: input_scalar_or_ndarray
-    ) -> output_scalar_or_ndarray:
+        self, *pixel_arrays: InputScalarOrNdarray
+    ) -> OutputScalarOrNdarray:
         """
         Convert pixel coordinates to world coordinates.
 
@@ -50,8 +54,8 @@ class BaseLowLevelWCS(LowLevelWCS, metaclass=abc.ABCMeta):
         """
 
     def array_index_to_world_values(
-        self, *index_arrays: input_index_or_ndarray
-    ) -> output_scalar_or_ndarray:
+        self, *index_arrays: InputIndexOrNdarray
+    ) -> OutputScalarOrNdarray:
         """
         Convert array indices to world coordinates.
 
@@ -68,8 +72,8 @@ class BaseLowLevelWCS(LowLevelWCS, metaclass=abc.ABCMeta):
 
     @abc.abstractmethod
     def world_to_pixel_values(
-        self, *world_arrays: input_scalar_or_ndarray
-    ) -> output_scalar_or_ndarray:
+        self, *world_arrays: InputScalarOrNdarray
+    ) -> OutputScalarOrNdarray:
         """
         Convert world coordinates to pixel coordinates.
 
@@ -88,8 +92,8 @@ class BaseLowLevelWCS(LowLevelWCS, metaclass=abc.ABCMeta):
         """
 
     def world_to_array_index_values(
-        self, *world_arrays: input_scalar_or_ndarray
-    ) -> output_index_or_ndarray:
+        self, *world_arrays: InputIndexOrNdarray
+    ) -> OutputIndexOrNdarray:
         """
         Convert world coordinates to array indices.
 
@@ -219,7 +223,7 @@ class BaseLowLevelWCS(LowLevelWCS, metaclass=abc.ABCMeta):
         """
         return False
 
-    def _as_mpl_axes(self):
+    def _as_mpl_axes(self) -> tuple[type[WCSAxes], dict[str, BaseLowLevelWCS]]:
         """Compatibility hook for Matplotlib and WCSAxes.
 
         With this method, one can do::
