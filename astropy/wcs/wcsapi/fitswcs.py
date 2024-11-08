@@ -3,7 +3,11 @@
 # isolated in this mix-in class to avoid making the main wcs.py file too
 # long.
 
+from __future__ import annotations
+
 import warnings
+from abc import abstractmethod
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -19,6 +23,16 @@ from astropy.utils.exceptions import AstropyUserWarning
 from .high_level_api import HighLevelWCSMixin
 from .low_level_api import BaseLowLevelWCS
 from .wrappers import SlicedLowLevelWCS
+
+if TYPE_CHECKING:
+    from .typing import (
+        Bounds,
+        InputScalarOrNdarray,
+        OutputScalarOrNdarray,
+        ScalarOrNdarray,
+        WorldAxisClasses,
+        WorldAxisComponents,
+    )
 
 __all__ = ["custom_ctype_to_ucd_mapping", "SlicedFITSWCS", "FITSWCSAPIMixin"]
 
@@ -212,36 +226,36 @@ class FITSWCSAPIMixin(BaseLowLevelWCS, HighLevelWCSMixin):
     """
 
     @property
-    def pixel_n_dim(self):
+    def pixel_n_dim(self) -> int:
         return self.naxis
 
     @property
-    def world_n_dim(self):
+    def world_n_dim(self) -> int:
         return len(self.wcs.ctype)
 
     @property
-    def array_shape(self):
+    def array_shape(self) -> tuple[int, ...] | None:
         if self.pixel_shape is None:
             return None
         else:
             return self.pixel_shape[::-1]
 
     @array_shape.setter
-    def array_shape(self, value):
+    def array_shape(self, value: tuple[int, ...] | None) -> None:
         if value is None:
             self.pixel_shape = None
         else:
             self.pixel_shape = value[::-1]
 
     @property
-    def pixel_shape(self):
+    def pixel_shape(self) -> tuple[int, ...] | None:
         if self._naxis == [0, 0]:
             return None
         else:
             return tuple(self._naxis)
 
     @pixel_shape.setter
-    def pixel_shape(self, value):
+    def pixel_shape(self, value: tuple[int, ...] | None) -> None:
         if value is None:
             self._naxis = [0, 0]
         else:
@@ -253,11 +267,11 @@ class FITSWCSAPIMixin(BaseLowLevelWCS, HighLevelWCSMixin):
             self._naxis = list(value)
 
     @property
-    def pixel_bounds(self):
+    def pixel_bounds(self) -> Bounds:
         return self._pixel_bounds
 
     @pixel_bounds.setter
-    def pixel_bounds(self, value):
+    def pixel_bounds(self, value: Bounds) -> None:
         if value is None:
             self._pixel_bounds = value
         else:
@@ -270,7 +284,7 @@ class FITSWCSAPIMixin(BaseLowLevelWCS, HighLevelWCSMixin):
             self._pixel_bounds = list(value)
 
     @property
-    def world_axis_physical_types(self):
+    def world_axis_physical_types(self) -> list[str]:
         types = []
         # TODO: need to support e.g. TT(TAI)
         for ctype in self.wcs.ctype:
@@ -287,7 +301,7 @@ class FITSWCSAPIMixin(BaseLowLevelWCS, HighLevelWCSMixin):
         return types
 
     @property
-    def world_axis_units(self):
+    def world_axis_units(self) -> list[str]:
         units = []
         for unit in self.wcs.cunit:
             if unit is None:
@@ -303,11 +317,11 @@ class FITSWCSAPIMixin(BaseLowLevelWCS, HighLevelWCSMixin):
         return units
 
     @property
-    def world_axis_names(self):
+    def world_axis_names(self) -> list[str]:
         return list(self.wcs.cname)
 
     @property
-    def axis_correlation_matrix(self):
+    def axis_correlation_matrix(self) -> np.typing.NDArray[np.bool_]:
         # If there are any distortions present, we assume that there may be
         # correlations between all axes. Maybe if some distortions only apply
         # to the image plane we can improve this?
@@ -332,9 +346,11 @@ class FITSWCSAPIMixin(BaseLowLevelWCS, HighLevelWCSMixin):
 
         return matrix
 
-    def _out_of_bounds_to_nan(self, pixel_arrays):
+    def _out_of_bounds_to_nan(
+        self, pixel_arrays: InputScalarOrNdarray | list[ScalarOrNdarray]
+    ) -> InputScalarOrNdarray:
         if self.pixel_bounds is not None:
-            pixel_arrays = list(pixel_arrays)
+            pixel_arrays: list[ScalarOrNdarray] = list(pixel_arrays)
             for idim in range(self.pixel_n_dim):
                 if self.pixel_bounds[idim] is None:
                     continue
@@ -351,9 +367,14 @@ class FITSWCSAPIMixin(BaseLowLevelWCS, HighLevelWCSMixin):
                     pixel_arrays[idim] = pix
         return pixel_arrays
 
-    def pixel_to_world_values(self, *pixel_arrays):
+    @abstractmethod
+    def all_pix2world(self, *args: tuple, **kwargs: dict) -> list[ScalarOrNdarray]: ...
+
+    def pixel_to_world_values(
+        self, *pixel_arrays: InputScalarOrNdarray
+    ) -> OutputScalarOrNdarray:
         pixel_arrays = self._out_of_bounds_to_nan(pixel_arrays)
-        world = self.all_pix2world(*pixel_arrays, 0)
+        world: list[ScalarOrNdarray] = self.all_pix2world(*pixel_arrays, 0)
         return world[0] if self.world_n_dim == 1 else tuple(world)
 
     def world_to_pixel_values(self, *world_arrays):
@@ -375,18 +396,20 @@ class FITSWCSAPIMixin(BaseLowLevelWCS, HighLevelWCSMixin):
         return pixel[0] if self.pixel_n_dim == 1 else tuple(pixel)
 
     @property
-    def world_axis_object_components(self):
+    def world_axis_object_components(self) -> WorldAxisClasses:
         return self._get_components_and_classes()[0]
 
     @property
-    def world_axis_object_classes(self):
+    def world_axis_object_classes(self) -> WorldAxisComponents:
         return self._get_components_and_classes()[1]
 
     @property
-    def serialized_classes(self):
+    def serialized_classes(self) -> bool:
         return False
 
-    def _get_components_and_classes(self):
+    def _get_components_and_classes(
+        self,
+    ) -> tuple[WorldAxisComponents, WorldAxisClasses]:
         # The aim of this function is to return whatever is needed for
         # world_axis_object_components and world_axis_object_classes. It's easier
         # to figure it out in one go and then return the values and let the

@@ -41,13 +41,17 @@ class ConcreteHighLevelWCS(high_level_api.BaseHighLevelWCS):
     def world_to_pixel(self, *world_objects): ...
 
 
+class ConcreteFITSWCSAPIMixin(fitswcs.FITSWCSAPIMixin):
+    def all_pix2world(self, *args, **kwargs): ...
+
+
 @pytest.mark.parametrize(
     "instance",
     [
         ConcreteLowLevelWCS(),
         fitswcs.SlicedLowLevelWCS(WCS(), 1),
         fitswcs.SlicedFITSWCS(WCS(), 1),
-        fitswcs.FITSWCSAPIMixin(),
+        ConcreteFITSWCSAPIMixin(),
         WCS(),
     ],
 )
@@ -65,7 +69,7 @@ def test_low_level_wcs(instance):
         ConcreteHighLevelWCS(),
         high_level_api.HighLevelWCSMixin(),
         fitswcs.SlicedFITSWCS(WCS(), 1),
-        fitswcs.FITSWCSAPIMixin(),
+        ConcreteFITSWCSAPIMixin(),
         WCS(),
     ],
 )

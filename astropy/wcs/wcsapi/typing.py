@@ -1,4 +1,6 @@
-from typing import TypeAlias, TypeVar
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, TypeVar
 
 import numpy as np
 from typing_extensions import Buffer  # Need 3.12 for this to be in stdlib
@@ -8,7 +10,11 @@ from astropy.time import Time
 from astropy.units import Quantity
 from astropy.units.typing import Real
 
+if TYPE_CHECKING:
+    from typing import TypeAlias
+
 Interval: TypeAlias = tuple[Real, Real]
+Bounds = tuple[Interval, ...] | list[Interval] | Interval | None
 
 BooleanBuffer: TypeAlias = Buffer | np.typing.NDArray[bool]
 ScalarBuffer: TypeAlias = Buffer | np.typing.NDArray[Real]
@@ -27,6 +33,9 @@ WorldAxisComponent: TypeAlias = tuple[str, str | int, str]
 WorldAxisClass: TypeAlias = tuple[
     type | str, tuple[int | None, ...], dict[str, _HighLevelObject]
 ]
+
+WorldAxisComponents: TypeAlias = list[WorldAxisComponent]
+WorldAxisClasses: TypeAlias = dict[str, WorldAxisClass]
 
 # These are the implemented types for the high-level WCS interface
 #   but they can be anything from the world_axis_object_classes (hence the type var)

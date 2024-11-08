@@ -8,15 +8,15 @@ if TYPE_CHECKING:
 
     from .typing import (
         BooleanBuffer,
+        Bounds,
         HighLevelObject,
         HighLevelOutput,
         IndexArrays,
-        Interval,
         OutputCoords,
         OutputIndex,
         ScalarArrays,
-        WorldAxisClass,
-        WorldAxisComponent,
+        WorldAxisClasses,
+        WorldAxisComponents,
     )
 
 
@@ -92,7 +92,7 @@ class LowLevelWCS(Protocol):
 
     @property
     @abstractmethod
-    def pixel_bounds(self) -> tuple[Interval, ...] | list[Interval] | Interval | None:
+    def pixel_bounds(self) -> Bounds:
         """
         The bounds (in pixel coordinates) inside which the WCS is defined,
         as a list with ``pixel_n_dim`` ``(min, max)`` tuples (optional).
@@ -224,7 +224,7 @@ class LowLevelWCS(Protocol):
 
     @property
     @abstractmethod
-    def world_axis_object_components(self) -> list[WorldAxisComponent]:
+    def world_axis_object_components(self) -> WorldAxisComponents:
         """
         A list with n_dim_world elements, where each element is a tuple with
         three items:
@@ -251,7 +251,7 @@ class LowLevelWCS(Protocol):
 
     @property
     @abstractmethod
-    def world_axis_object_classes(self) -> dict[str, WorldAxisClass]:
+    def world_axis_object_classes(self) -> WorldAxisClasses:
         """
         A dictionary with each key being a string key from
         ``world_axis_object_components``, and each value being a tuple with

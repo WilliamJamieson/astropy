@@ -20,7 +20,7 @@ if TYPE_CHECKING:
         OutputIndexOrNdarray,
         OutputScalarOrNdarray,
         ScalarOrNdarray,
-        WorldAxisComponent,
+        WorldAxisComponents,
     )
 
 __all__ = [
@@ -37,7 +37,7 @@ def rec_getattr(obj: AstropyOutput, att: str) -> ScalarOrNdarray:
     return obj
 
 
-def default_order(components: list[WorldAxisComponent]) -> list[str]:
+def default_order(components: WorldAxisComponents) -> list[str]:
     order = []
     for key, _, _ in components:
         if key not in order:
