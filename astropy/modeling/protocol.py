@@ -7,6 +7,387 @@ import numpy as np
 
 
 @runtime_checkable
+class Parameter(Protocol):
+    """
+    Protocol describing the public API for an astropy model parameter.
+
+    This protocol defines the interface for parameter objects used in models.
+    Parameters represent model coefficients, support units, constraints, and
+    can be used in arithmetic expressions.
+
+    Examples
+    --------
+    >>> p: Parameter
+    >>> p.value = 3.0
+    >>> p.unit
+    'm'
+    >>> p.fixed = True
+    >>> p.bounds = (0, 10)
+    >>> p2 = p.copy(default=5.0)
+
+    Entry Importance
+    ----------------
+    Core:
+    `name`, `value`, `fixed`, `tied`, `bounds`, `min`, `max`, `copy()`, `validate()`
+
+    Common:
+    `description`, `default`, `unit`, `quantity`, `shape`, `size`, `model`
+
+    Optional/Specialized:
+    `std`, `prior`, `posterior`, arithmetic/comparison dunder methods
+    """
+
+    name: str
+    description: str
+    default: float | np.ndarray | None
+    value: float | np.ndarray
+    unit: Any | None
+    quantity: Any | None
+    fixed: bool
+    tied: Callable | bool
+    bounds: tuple[float | None, float | None]
+    min: float | None
+    max: float | None
+    std: float | np.ndarray | None
+    prior: Any
+    posterior: Any
+    shape: tuple[int, ...]
+    size: int
+    model: Any
+
+    def copy(
+        self,
+        *,
+        name: str = ...,
+        description: str = ...,
+        default: Any = ...,
+        unit: Any = ...,
+        getter: Any = ...,
+        setter: Any = ...,
+        fixed: bool = ...,
+        tied: Any = ...,
+        min: Any = ...,
+        max: Any = ...,
+        bounds: Any = ...,
+        prior: Any = ...,
+        posterior: Any = ...,
+    ) -> Parameter: ...
+
+    def validate(self, value: Any) -> None: ...
+
+    # Arithmetic and comparison dunder methods
+    def __add__(self, other: Any) -> Any: ...
+    def __radd__(self, other: Any) -> Any: ...
+    def __sub__(self, other: Any) -> Any: ...
+    def __rsub__(self, other: Any) -> Any: ...
+    def __mul__(self, other: Any) -> Any: ...
+    def __rmul__(self, other: Any) -> Any: ...
+    def __truediv__(self, other: Any) -> Any: ...
+    def __rtruediv__(self, other: Any) -> Any: ...
+    def __pow__(self, other: Any) -> Any: ...
+    def __rpow__(self, other: Any) -> Any: ...
+    def __eq__(self, other: object) -> bool: ...
+    def __ne__(self, other: object) -> bool: ...
+    def __lt__(self, other: Any) -> bool: ...
+    def __le__(self, other: Any) -> bool: ...
+    def __gt__(self, other: Any) -> bool: ...
+    def __ge__(self, other: Any) -> bool: ...
+
+
+@runtime_checkable
+class Fitter(Protocol):
+    """
+    Protocol describing the public API for astropy model fitters.
+
+    Fitters implement algorithms to optimize model parameters to fit data.
+    They support constraints, provide fit information, and are callable.
+
+    Examples
+    --------
+    >>> fitter: Fitter
+    >>> result = fitter(model, x, y)
+    >>> fitter.fit_info
+    {'residuals': ..., 'rank': ...}
+
+    Entry Importance
+    ----------------
+    Core:
+    `supported_constraints`, `__call__()`
+
+    Common:
+    `fit_info`, `objective_function()`
+
+    Optional/Specialized:
+    `_add_fitting_uncertainties()`, `supports_masked_input`
+    """
+
+    supported_constraints: list[str]
+    fit_info: dict[str, Any]
+
+    def __call__(
+        self,
+        model: Any,
+        x: Any,
+        y: Any,
+        z: Any = None,
+        weights: Any = None,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any: ...
+    def objective_function(self, fps: Any, *args: Any, **kwargs: Any) -> Any: ...
+    def _add_fitting_uncertainties(self, *args: Any, **kwargs: Any) -> Any: ...
+
+    # Optional: for fitters supporting masked input
+    supports_masked_input: bool
+
+
+@runtime_checkable
+class FittingWithOutlierRemoval(Protocol):
+    """
+    Protocol for iterative outlier-removal wrappers around fitters.
+
+    This interface captures the public API of objects that alternate fitting
+    and masking of outliers, then return both the fitted model and final mask.
+
+    Entry Importance
+    ----------------
+    Core:
+    `fitter`, `outlier_func`, `niter`, `__call__()`
+
+    Common:
+    `outlier_kwargs`, `fit_info`
+
+    Optional/Specialized:
+    `__str__()`, `__repr__()`
+    """
+
+    fitter: Fitter
+    outlier_func: Callable
+    niter: int
+    outlier_kwargs: dict[str, Any]
+    fit_info: dict[str, Any]
+
+    def __call__(
+        self,
+        model: Any,
+        x: Any,
+        y: Any,
+        z: Any = None,
+        weights: Any = None,
+        *,
+        inplace: bool = False,
+        **kwargs: Any,
+    ) -> tuple[Any, np.ndarray]: ...
+
+    def __str__(self) -> str: ...
+    def __repr__(self) -> str: ...
+
+
+@runtime_checkable
+class JointFitter(Protocol):
+    """
+    Protocol for fitters that jointly fit multiple models with shared parameters.
+
+    Joint fitters maintain collections of models and shared-parameter metadata,
+    and fit all models simultaneously.
+
+    Entry Importance
+    ----------------
+    Core:
+    `models`, `jointparams`, `initvals`, `model_to_fit_params()`,
+    `objective_function()`, `__call__()`
+
+    Common:
+    `fitparams`, `modeldims`, `ndim`
+    """
+
+    models: list[Any]
+    initvals: list[Any]
+    jointparams: dict[Any, list[str]]
+    fitparams: list[Any]
+    modeldims: list[int]
+    ndim: int
+
+    def model_to_fit_params(self) -> list[Any]: ...
+    def objective_function(self, fps: Any, *args: Any) -> Any: ...
+    def __call__(self, *args: Any) -> None: ...
+
+
+@runtime_checkable
+class Optimization(Protocol):
+    """
+    Protocol describing the public API for optimization backends used by fitters.
+
+    Optimizers wrap a numerical optimization routine and expose shared controls
+    such as iteration limits and convergence tolerances.
+
+    Entry Importance
+    ----------------
+    Core:
+    `supported_constraints`, `__call__()`
+
+    Common:
+    `maxiter`, `eps`, `acc`, `opt_method`, `fit_info`
+    """
+
+    supported_constraints: list[str]
+    fit_info: dict[str, Any]
+    maxiter: int
+    eps: float
+    acc: float
+    opt_method: Callable
+
+    def __call__(
+        self,
+        objfunc: Callable,
+        initval: Any,
+        fargs: tuple[Any, ...],
+        **kwargs: Any,
+    ) -> tuple[Any, dict[str, Any]]: ...
+
+
+@runtime_checkable
+class Statistic(Protocol):
+    """
+    Protocol for statistic functions used during fitting.
+
+    A statistic function receives measured values, the current model, optional
+    weights, and one or more independent-variable arrays.
+
+    Entry Importance
+    ----------------
+    Core:
+    `__call__()`
+    """
+
+    def __call__(
+        self,
+        measured_vals: Any,
+        updated_model: Any,
+        weights: Any,
+        *coords: Any,
+    ) -> float: ...
+
+
+@runtime_checkable
+class Covariance(Protocol):
+    """
+    Protocol for covariance results attached to fitted models.
+
+    Entry Importance
+    ----------------
+    Core:
+    `cov_matrix`, `param_names`, `__getitem__()`
+
+    Common:
+    `pprint()`, `__repr__()`
+    """
+
+    cov_matrix: Any
+    param_names: list[str] | tuple[str, ...]
+
+    def pprint(self, max_lines: int, round_val: int) -> str: ...
+    def __getitem__(self, params: tuple[str, str] | tuple[int, int]) -> Any: ...
+    def __repr__(self) -> str: ...
+
+
+@runtime_checkable
+class StandardDeviations(Protocol):
+    """
+    Protocol for per-parameter fitting uncertainties.
+
+    Entry Importance
+    ----------------
+    Core:
+    `param_names`, `stds`, `__getitem__()`
+
+    Common:
+    `pprint()`, `__repr__()`
+    """
+
+    param_names: list[str] | tuple[str, ...]
+    stds: list[float | None]
+
+    def pprint(self, max_lines: int, round_val: int) -> str: ...
+    def __getitem__(self, param: str | int) -> float | None: ...
+    def __repr__(self) -> str: ...
+
+
+@runtime_checkable
+class BoundingDomain(Protocol):
+    """
+    Protocol for bounding-domain objects used to clip model evaluation.
+
+    This covers shared behavior implemented by model bounding-box variants.
+
+    Entry Importance
+    ----------------
+    Core:
+    `model`, `fix_inputs()`, `prepare_inputs()`, `prepare_outputs()`, `evaluate()`
+
+    Common:
+    `order`, `ignored`, `ignored_inputs`
+    """
+
+    model: Any
+    order: str
+    ignored: list[int]
+    ignored_inputs: list[str]
+
+    def fix_inputs(self, model: Any, fixed_inputs: dict[Any, Any]) -> Any: ...
+    def prepare_inputs(self, input_shape: Any, inputs: Any) -> tuple[Any, Any, Any]: ...
+    def prepare_outputs(
+        self,
+        valid_outputs: Any,
+        valid_index: Any,
+        input_shape: Any,
+        fill_value: Any,
+    ) -> Any: ...
+    def evaluate(
+        self, evaluate: Callable, inputs: Any, fill_value: Any
+    ) -> tuple[Any, ...]: ...
+
+
+@runtime_checkable
+class ModelBoundingBox(BoundingDomain, Protocol):
+    """
+    Protocol for per-model bounding box containers.
+
+    Entry Importance
+    ----------------
+    Core:
+    `intervals`, `bounding_box()`, `validate()`
+
+    Common:
+    `named_intervals`, `dimension`, `copy()`, `has_interval()`, `domain()`
+
+    Inherited Core from `BoundingDomain`:
+    `fix_inputs()`, `prepare_inputs()`, `prepare_outputs()`, `evaluate()`
+    """
+
+    intervals: dict[int, Any]
+    named_intervals: dict[str, Any]
+    dimension: int
+
+    def copy(self, ignored: list[int] | None = None) -> ModelBoundingBox: ...
+    def has_interval(self, key: Any) -> bool: ...
+    def bounding_box(
+        self, order: str | None = None
+    ) -> tuple[float, float] | tuple[tuple[float, float], ...]: ...
+    def domain(self, resolution: Any, order: str | None = None) -> list[np.ndarray]: ...
+
+    @classmethod
+    def validate(
+        cls,
+        model: Any,
+        bounding_box: Any,
+        ignored: list | None = None,
+        order: str = "C",
+        **kwargs: Any,
+    ) -> ModelBoundingBox: ...
+
+
+@runtime_checkable
 class Model(Protocol):
     """
     Protocol describing the public API for an astropy model.
@@ -80,6 +461,28 @@ class Model(Protocol):
     All successfully implement this protocol and demonstrate that it covers
     diverse use cases from simple coordinate transforms to complex selector
     logic with conditional behavior.
+
+    Entry Importance
+    ----------------
+    Core:
+    `n_inputs`, `n_outputs`, `param_names`, `parameters`, `inputs`, `outputs`,
+    `__call__()`, `evaluate()`, `copy()`, `__len__()`
+
+    Common:
+    `fittable`, `linear`, `standard_broadcasting`, `parameter_constraints`,
+    `model_constraints`, `name`, `meta`, `param_sets`, `model_set_axis`,
+    `fixed`, `bounds`, `tied`, `has_fixed`, `has_bounds`, `has_tied`,
+    `eqcons`, `ineqcons`, `inverse`, `bounding_box`, `render()`,
+    `prepare_inputs()`, `prepare_outputs()`, `deepcopy()`, `__repr__()`,
+    `__str__()`, compound operators (`__add__`, `__sub__`, `__mul__`,
+    `__truediv__`, `__pow__`, `__or__`, `__and__`)
+
+    Optional/Specialized:
+    `has_inverse`, `has_user_inverse`, `has_user_bounding_box`, `cov_matrix`,
+    `stds`, `separable`, `sync_constraints`, `input_units_strict`,
+    `input_units_allow_dimensionless`, `uses_quantity`, `input_units`,
+    `output_units` (attribute), `fit_deriv`, `without_units_for_data()`,
+    `with_units_from_data()`, `output_units(...)` (method), `coerce_units()`
     """
 
     # *** Class Attributes ***
